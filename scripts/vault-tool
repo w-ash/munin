@@ -24,6 +24,14 @@ ENV_FILE="$SCRIPTS_DIR/.env"
 : "${UV_PROJECT_ENVIRONMENT:=$HOME/.local/share/uv/envs/vault-scripts}"
 export UV_PROJECT_ENVIRONMENT
 
+# Tell Python which vault to operate on. bash's pwd preserves symlinks
+# (logical mode), so SCRIPTS_DIR here is the vault-side path when this
+# dispatcher is invoked through a symlink. Python's Path.resolve() in
+# _utils.py would otherwise canonicalize to the physical repo path
+# (~/Projects/munin/) and operate on the wrong tree.
+VAULT_DIR="$(dirname "$SCRIPTS_DIR")"
+export VAULT_DIR
+
 run() {
   local module="$1"; shift
   # --env-file is relative to --directory (absolute paths with spaces

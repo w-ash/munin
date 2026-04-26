@@ -23,7 +23,15 @@ sys.pycache_prefix = str(Path.home() / ".cache" / "pycache")
 
 _PACKAGE_DIR = Path(__file__).resolve().parent   # scripts/vault_scripts/
 _SCRIPTS_DIR = _PACKAGE_DIR.parent               # scripts/
-VAULT = _SCRIPTS_DIR.parent                      # vault root
+
+# When the scripts/ directory is symlinked into a separate vault (common
+# now that this package lives in its own git repo), Path.resolve above
+# yields the physical repo path — wrong for vault operations. The
+# dispatcher exports VAULT_DIR using bash's logical pwd, which preserves
+# the symlink. Honor it when present; fall back to the script's parent
+# for direct invocations of a vault-colocated scripts/ tree.
+_vault_env = os.environ.get("VAULT_DIR")
+VAULT = Path(_vault_env) if _vault_env else _SCRIPTS_DIR.parent
 TRAVEL_DIR = VAULT / "Travel"
 
 # Frontmatter splits on "---" into [before, yaml, body] → three parts
