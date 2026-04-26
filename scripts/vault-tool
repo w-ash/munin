@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# vault-tool — dispatcher for vault_scripts modules.
+#
+# Usage:  scripts/vault-tool <module> [args...]
+#         vault-tool <module> [args...]    # if PATH'd
+#
+# Examples:
+#     scripts/vault-tool geocode lookup --file "Travel/Japan26/Dining/entries/Den.md" --write
+#     scripts/vault-tool geocode batch Japan26 --write --stations
+#     scripts/vault-tool style_audit Japan26
+#
+# Lists available modules when called with no args or an unknown module.
+# Kept bash-3.2 compatible so it runs on macOS's stock /bin/bash.
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+PKG_DIR="$SCRIPTS_DIR/vault_scripts"
+ENV_FILE="$SCRIPTS_DIR/.env"
+
+# Keep the venv outside iCloud — syncing 1.6k venv files breaks on lazy
+# materialization and on cross-arch machine moves. uv.lock + pyproject.toml
+# stay in iCloud; each machine builds its own local venv from them.
+: "${UV_PROJECT_ENVIRONMENT:=$HOME/.local/share/uv/envs/vault-scripts}"
+export UV_PROJECT_ENVIRONMENT
+
+run() {
+  local module="$1"; shift
+  # --env-file is relative to --directory (absolute paths with spaces
+  # confuse uv's arg parsing on iCloud layouts).
+  local env_args=()
+  [[ -f "$ENV_FILE" ]] && env_args=(--env-file .env)
+  exec uv run --directory "$SCRIPTS_DIR" "${env_args[@]}" \
+    python -m "vault_scripts.$module" "$@"
+}
+
+# Fast path: if the user passed a known runnable module, exec without scanning.
+# Private modules (_*.py) are library-only; we never expose them.
+if [[ $# -gt 0 && "$1" != _* && -f "$PKG_DIR/$1.py" ]]; then
+  run "$@"
+fi
+
+# Slow path: discover runnable modules for usage / unknown-module errors.
+MODULES="$(
+  find "$PKG_DIR" -maxdepth 1 -name '*.py' ! -name '_*' \
+    -exec basename {} .py \; | sort
+)"
+
+usage() {
+  echo "usage: $(basename "$0") <module> [args...]" >&2
+  echo "modules:" >&2
+  printf '%s\n' "$MODULES" | sed 's/^/  /' >&2
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 1
+fi
+
+echo "unknown module: $1" >&2
+usage
+exit 1

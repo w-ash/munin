@@ -1,0 +1,126 @@
+"""Shared tenacity retry policies and HTTP helpers for external API calls.
+
+Exception taxonomy:
+
+- ``TransientHTTPError`` — status 429/502/503/504 from any API; retryable.
+- ``OverpassBusyError`` — Overpass returned HTML (server overloaded); retryable.
+- ``OverpassUnavailableError`` — every Overpass mirror exhausted retries;
+  raised by the caller's outer mirror-fallback loop so downstream code can
+  distinguish "OSM confirmed empty" from "we never got an answer".
+- ``requests.Timeout`` / ``requests.ConnectionError`` — network flakes; retryable.
+
+``request_json()`` checks the response for transient failures and raises the
+appropriate exception so tenacity can retry. Google gets jittered backoff to
+avoid thundering-herd under sustained rate limits; Overpass uses plain
+exponential since its failures are usually server-wide and bouncing off one
+mirror to the next handles uncorrelated load better than jitter alone.
+
+Both decorators reraise on final failure so callers see the underlying
+exception instead of a ``RetryError`` wrapper.
+
+Return type: ``request_json`` returns ``object`` (the unparsed JSON). Callers
+are expected to validate it through a Pydantic model at the boundary — this
+keeps ``Any`` out of the type graph while still handling arbitrary JSON.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import cast
+
+from pydantic import ValidationError
+import requests
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    wait_random_exponential,
+)
+
+_TRANSIENT_STATUS = frozenset({429, 502, 503, 504})
+
+
+class TransientHTTPError(Exception):
+    """HTTP status in the transient set (429/5xx) — retry."""
+
+
+class OverpassBusyError(Exception):
+    """Overpass returned a non-JSON (HTML busy) response — retry."""
+
+
+class OverpassUnavailableError(Exception):
+    """All Overpass mirrors exhausted retries. Caller can't fill station_lines.
+
+    Distinct from "OSM had no matching elements" (that's a successful
+    empty response) — this means we never got a usable answer. Callers
+    in refresh mode should preserve existing values rather than clear
+    them on this exception.
+    """
+
+
+# All exception types an external API call can raise after retries are
+# exhausted. Callers should ``except APIError`` around the call site.
+# Schema drift raises ValidationError during model_validate(); tenacity's
+# final reraise surfaces Transient/Overpass errors after retries.
+APIError: tuple[type[BaseException], ...] = (
+    requests.RequestException,
+    ValidationError,
+    TransientHTTPError,
+    OverpassBusyError,
+    OverpassUnavailableError,
+)
+
+
+google_retry = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_random_exponential(multiplier=1, max=8),
+    retry=retry_if_exception_type(APIError),
+    reraise=True,
+)
+
+
+overpass_retry = retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1.1, min=1, max=8),
+    retry=retry_if_exception_type(APIError),
+    reraise=True,
+)
+
+
+def request_json(
+    method: str,
+    url: str,
+    *,
+    timeout: int,
+    headers: dict[str, str] | None = None,
+    json: object | None = None,
+    data: dict[str, str] | None = None,
+    params: dict[str, str] | None = None,
+    ok: Callable[[requests.Response], bool] | None = None,
+) -> object:
+    """Issue an HTTP request and return parsed JSON.
+
+    Raises retryable exceptions on transient failure so callers can wrap
+    with a tenacity decorator. ``ok`` is an optional predicate run on a
+    2xx response; if it returns False the call raises
+    :class:`OverpassBusyError`. Used by Overpass to treat HTML-in-200
+    responses as retryable busy signals.
+    """
+    resp = requests.request(
+        method,
+        url,
+        timeout=timeout,
+        headers=headers,
+        json=json,
+        data=data,
+        params=params,
+    )
+    if resp.status_code in _TRANSIENT_STATUS:
+        raise TransientHTTPError(f"HTTP {resp.status_code}")
+    resp.raise_for_status()
+    if ok is not None and not ok(resp):
+        raise OverpassBusyError("response predicate failed")
+    # requests.Response.json() is annotated Any; narrow to object so
+    # callers have to validate through Pydantic before acting on it.
+    return cast(object, resp.json())

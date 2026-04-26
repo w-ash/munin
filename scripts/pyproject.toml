@@ -1,0 +1,133 @@
+[project]
+name = "vault-scripts"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "python-frontmatter>=1.1",
+    "requests>=2.33",
+    "tenacity>=9.0",
+    "pydantic>=2.10",
+    "pillow>=11.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.15",
+    "basedpyright>=1.38",
+    "types-requests>=2.33",
+]
+
+[tool.uv]
+python-preference = "only-managed"
+default-groups = ["dev"]
+# iCloud paths have spaces that break .pth files used by editable installs,
+# which means [project.scripts] entry points can't resolve the package.
+# With package=false, uv adds the project root to sys.path directly.
+# Invoke scripts via the dispatcher: scripts/vault-tool <module> [args...]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "--strict-markers --tb=short"
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+preview = true
+output-format = "full"
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "B",     # flake8-bugbear
+    "UP",    # pyupgrade — modernize syntax
+    "N",     # pep8-naming
+    "SIM",   # flake8-simplify
+    "RUF",   # Ruff-specific rules
+    "C4",    # flake8-comprehensions
+    "S",     # flake8-bandit (security)
+    "PT",    # flake8-pytest-style
+    "COM",   # flake8-commas (trailing commas)
+    "DTZ",   # flake8-datetimez (timezone awareness)
+    "PERF",  # performance anti-patterns
+    "ARG",   # function argument validation
+    "FURB",  # modernize Python patterns
+    "LOG",   # logging best practices
+    "TRY",   # exception handling
+    "PL",    # Pylint checks
+    "PTH",   # use pathlib
+]
+ignore = [
+    "E501",      # Line too long — handled by formatter
+    "COM812",    # Trailing comma — conflicts with formatter
+    "TRY003",    # Long exception messages — clear errors are good
+    "RUF002",    # Ambiguous en-dash/em-dash in docstrings — common in prose
+    "PLR0911",   # Too many return statements
+    "PLR0912",   # Too many branches
+    "PLR0913",   # Too many arguments
+    "PLR0914",   # Too many local variables
+    "PLR0915",   # Too many statements
+    "PLR0917",   # Too many positional arguments
+    "B007",      # Unused loop control variable — used in tuple unpacking
+    "S112",      # try-except-continue — acceptable when iterating files best-effort
+    "S110",      # try-except-pass — same
+]
+fixable = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+# Pydantic models mirror Google's camelCase API schema — renaming would
+# break response parsing. camelCase is intentional here.
+"vault_scripts/_types.py" = ["N815"]
+"tests/**/*.py" = [
+    "S101",     # allow assert
+    "ARG001",
+    "ARG002",
+    "PLR2004",
+    "PLR6301",
+    "PLC1901",
+    "PT011",
+    "ERA001",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["vault_scripts"]
+combine-as-imports = true
+split-on-trailing-comma = true
+force-sort-within-sections = true
+order-by-type = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[tool.basedpyright]
+include = ["vault_scripts"]
+exclude = ["tests", "**/__pycache__"]
+stubPath = "typings"
+typeCheckingMode = "strict"
+pythonVersion = "3.14"
+pythonPlatform = "All"
+useLibraryCodeForTypes = false
+reportMissingImports = "error"
+reportMissingTypeStubs = "error"
+reportUnusedImport = "error"
+reportUnusedVariable = "error"
+reportDeprecated = "error"
+reportAny = "error"
+reportExplicitAny = "error"
+reportUnknownVariableType = "error"
+reportUnknownMemberType = "error"
+reportUnknownParameterType = "error"
+reportUnknownArgumentType = "error"
+reportMissingTypeArgument = "error"
+reportUnusedCallResult = "none"
+reportUninitializedInstanceVariable = "none"
+enableTypeIgnoreComments = true
