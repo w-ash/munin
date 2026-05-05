@@ -18,12 +18,9 @@ off one mirror to the next handles uncorrelated load better than jitter alone.
 Both decorators reraise on final failure so callers see the underlying
 exception instead of a ``RetryError`` wrapper.
 
-JSON validation is baked into the request: ``request_validated_json`` takes
-a ``response_model`` and returns a typed Pydantic model instance directly,
-parsing from ``resp.content`` (typed ``bytes``) via ``model_validate_json``.
-Keeps ``Any`` out of the type graph and avoids ``model_validate(json.loads(...))``
-boilerplate. The ``ok=`` predicate is preserved for Overpass HTML-in-200
-busy detection.
+``request_validated_json`` validates JSON responses against a Pydantic model
+in one call — parses from ``resp.content`` via ``model_validate_json`` so
+``Any`` never enters the type graph.
 """
 
 from __future__ import annotations
@@ -63,9 +60,8 @@ class OverpassUnavailableError(Exception):
 
 # All exception types an external API call can raise after retries are
 # exhausted. Callers should ``except APIError`` around the call site.
-# Schema drift and JSON-parse failures both raise ValidationError via
-# model_validate_json(); tenacity's final reraise surfaces
-# Transient/Overpass errors after retries.
+# Schema drift and JSON-parse failures both raise ValidationError;
+# tenacity's final reraise surfaces Transient/Overpass errors after retries.
 APIError: tuple[type[BaseException], ...] = (
     requests.RequestException,
     ValidationError,
@@ -134,11 +130,7 @@ def request_validated_json[M: BaseModel](
     :class:`OverpassBusyError`. Used by Overpass to treat HTML-in-200
     responses as retryable busy signals.
 
-    Validates from ``resp.content`` (``bytes``) via ``model_validate_json``
-    rather than ``resp.json()``: keeps ``Any`` out of the type graph and is
-    Pydantic's documented perf-preferred path. Malformed JSON raises
-    ``ValidationError`` (already in :data:`APIError`) instead of
-    ``requests.JSONDecodeError``.
+    Malformed JSON raises ``ValidationError`` (already in :data:`APIError`).
     """
     resp = requests.request(
         method,

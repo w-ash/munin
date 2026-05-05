@@ -89,8 +89,7 @@ class NominatimResult(_ExtraIgnore):
 
 
 class NominatimResponse(RootModel[list[NominatimResult]]):
-    """Nominatim returns a JSON array, not an envelope object. Wrap in
-    RootModel so the standard validated-request helper applies."""
+    """Nominatim returns a JSON array, not an envelope object."""
 
 
 # --- TypedDicts: internal dict shapes ---
