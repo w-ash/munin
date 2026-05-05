@@ -9,26 +9,28 @@ Exception taxonomy:
   distinguish "OSM confirmed empty" from "we never got an answer".
 - ``requests.Timeout`` / ``requests.ConnectionError`` — network flakes; retryable.
 
-``request_json()`` checks the response for transient failures and raises the
-appropriate exception so tenacity can retry. Google gets jittered backoff to
-avoid thundering-herd under sustained rate limits; Overpass uses plain
-exponential since its failures are usually server-wide and bouncing off one
-mirror to the next handles uncorrelated load better than jitter alone.
+``request_validated_json()`` checks the response for transient failures and
+raises the appropriate exception so tenacity can retry. Google gets jittered
+backoff to avoid thundering-herd under sustained rate limits; Overpass uses
+plain exponential since its failures are usually server-wide and bouncing
+off one mirror to the next handles uncorrelated load better than jitter alone.
 
 Both decorators reraise on final failure so callers see the underlying
 exception instead of a ``RetryError`` wrapper.
 
-Return type: ``request_json`` returns ``object`` (the unparsed JSON). Callers
-are expected to validate it through a Pydantic model at the boundary — this
-keeps ``Any`` out of the type graph while still handling arbitrary JSON.
+JSON validation is baked into the request: ``request_validated_json`` takes
+a ``response_model`` and returns a typed Pydantic model instance directly,
+parsing from ``resp.content`` (typed ``bytes``) via ``model_validate_json``.
+Keeps ``Any`` out of the type graph and avoids ``model_validate(json.loads(...))``
+boilerplate. The ``ok=`` predicate is preserved for Overpass HTML-in-200
+busy detection.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import cast
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 import requests
 from tenacity import (
     retry,
@@ -61,8 +63,9 @@ class OverpassUnavailableError(Exception):
 
 # All exception types an external API call can raise after retries are
 # exhausted. Callers should ``except APIError`` around the call site.
-# Schema drift raises ValidationError during model_validate(); tenacity's
-# final reraise surfaces Transient/Overpass errors after retries.
+# Schema drift and JSON-parse failures both raise ValidationError via
+# model_validate_json(); tenacity's final reraise surfaces
+# Transient/Overpass errors after retries.
 APIError: tuple[type[BaseException], ...] = (
     requests.RequestException,
     ValidationError,
@@ -110,24 +113,32 @@ def _classify_transient(resp: requests.Response) -> None:
     resp.raise_for_status()
 
 
-def request_json(
+def request_validated_json[M: BaseModel](
     method: str,
     url: str,
     *,
+    response_model: type[M],
     timeout: int,
     headers: dict[str, str] | None = None,
     json: object | None = None,
     data: dict[str, str] | None = None,
     params: dict[str, str] | None = None,
     ok: Callable[[requests.Response], bool] | None = None,
-) -> object:
-    """Issue an HTTP request and return parsed JSON.
+) -> M:
+    """Issue an HTTP request and validate the JSON response against
+    ``response_model``. Returns a typed model instance directly.
 
     Raises retryable exceptions on transient failure so callers can wrap
     with a tenacity decorator. ``ok`` is an optional predicate run on a
     2xx response; if it returns False the call raises
     :class:`OverpassBusyError`. Used by Overpass to treat HTML-in-200
     responses as retryable busy signals.
+
+    Validates from ``resp.content`` (``bytes``) via ``model_validate_json``
+    rather than ``resp.json()``: keeps ``Any`` out of the type graph and is
+    Pydantic's documented perf-preferred path. Malformed JSON raises
+    ``ValidationError`` (already in :data:`APIError`) instead of
+    ``requests.JSONDecodeError``.
     """
     resp = requests.request(
         method,
@@ -141,9 +152,7 @@ def request_json(
     _classify_transient(resp)
     if ok is not None and not ok(resp):
         raise OverpassBusyError("response predicate failed")
-    # requests.Response.json() is annotated Any; narrow to object so
-    # callers have to validate through Pydantic before acting on it.
-    return cast(object, resp.json())
+    return response_model.model_validate_json(resp.content)
 
 
 def request_image_bytes(

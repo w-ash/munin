@@ -34,6 +34,7 @@ import time
 import unicodedata
 
 import frontmatter
+from pydantic import BaseModel
 import requests
 
 from vault_scripts._retry import (
@@ -41,14 +42,14 @@ from vault_scripts._retry import (
     OverpassUnavailableError,
     google_retry,
     overpass_retry,
-    request_json,
+    request_validated_json,
 )
 from vault_scripts._types import (
     Enrichment,
     GapReason,
     GeocodeOptions,
     GeoResult,
-    NominatimResult,
+    NominatimResponse,
     OverpassResponse,
     PlacesPlace,
     PlacesResponse,
@@ -146,10 +147,14 @@ def has_non_latin_text(text: str) -> bool:
 # --- HTTP helpers ---
 
 @google_retry
-def _google_post(url: str, body: dict[str, object], field_mask: str) -> object:
+def _google_post[M: BaseModel](
+    url: str, body: dict[str, object], field_mask: str,
+    *, response_model: type[M],
+) -> M:
     """POST to a Google Maps Platform endpoint. Retries transient failures."""
-    return request_json(
+    return request_validated_json(
         "POST", url,
+        response_model=response_model,
         json=body,
         headers={
             "Content-Type": "application/json",
@@ -161,10 +166,15 @@ def _google_post(url: str, body: dict[str, object], field_mask: str) -> object:
 
 
 @google_retry
-def _nominatim_get(url: str, params: dict[str, str], headers: dict[str, str]) -> object:
+def _nominatim_get[M: BaseModel](
+    url: str, params: dict[str, str], headers: dict[str, str],
+    *, response_model: type[M],
+) -> M:
     """GET Nominatim (OSM) with tenacity retries."""
-    return request_json(
-        "GET", url, params=params, headers=headers, timeout=GOOGLE_TIMEOUT_S,
+    return request_validated_json(
+        "GET", url,
+        response_model=response_model,
+        params=params, headers=headers, timeout=GOOGLE_TIMEOUT_S,
     )
 
 
@@ -173,12 +183,15 @@ def _is_json_response(resp: requests.Response) -> bool:
 
 
 @overpass_retry
-def _overpass_post(url: str, query: str) -> object:
+def _overpass_post[M: BaseModel](
+    url: str, query: str, *, response_model: type[M],
+) -> M:
     """POST a single Overpass QL query with tenacity retries. HTML-in-200
     responses (OSM3S "server busy" pages) raise ``OverpassBusyError`` so
     the retry decorator backs off."""
-    return request_json(
+    return request_validated_json(
         "POST", url,
+        response_model=response_model,
         data={"data": query},
         headers={"User-Agent": user_agent()},
         timeout=OVERPASS_TIMEOUT_S,
@@ -224,16 +237,16 @@ def places_search(
     Returns (top hit, total candidate count) or None.
     """
     try:
-        data = _google_post(
+        response = _google_post(
             PLACES_SEARCH_URL,
             body={"textQuery": query, "languageCode": lang},
             field_mask=FIELDS_ENRICHED if enrich else FIELDS_ESSENTIALS,
+            response_model=PlacesResponse,
         )
     except APIError as e:
         print(f"  Places API error: {e}", file=sys.stderr)
         return None
 
-    response = PlacesResponse.model_validate(data)
     if not response.places:
         return None
     top = response.places[0]
@@ -334,19 +347,19 @@ def geocode_nominatim(query: str) -> GeoResult | None:
     Nominatim's usage policy requires max 1 req/sec and a User-Agent.
     """
     try:
-        data = _nominatim_get(
+        response = _nominatim_get(
             NOMINATIM_URL,
             params={"q": query, "format": "json", "limit": "3"},
             headers={"User-Agent": user_agent()},
+            response_model=NominatimResponse,
         )
     except APIError as e:
         print(f"  Nominatim error: {e}", file=sys.stderr)
         return None
 
-    if not isinstance(data, list) or not data:
+    if not response.root:
         return None
-    results = [NominatimResult.model_validate(item) for item in data]  # type: ignore[arg-type]
-    top = results[0]
+    top = response.root[0]
     lat = round(float(top.lat), 4)
     lng = round(float(top.lon), 4)
 
@@ -357,7 +370,7 @@ def geocode_nominatim(query: str) -> GeoResult | None:
         "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={lat},{lng}",
         "place_id": "",
         "confidence": "low",
-        "candidates": len(results),
+        "candidates": len(response.root),
         "source": "nominatim",
     }
 
@@ -411,7 +424,7 @@ def find_nearest_station(lat: float, lng: float) -> Station | None:
         return _NEAREST_STATION_CACHE[cache_key]
 
     try:
-        data = _google_post(
+        response = _google_post(
             PLACES_NEARBY_URL,
             body={
                 "includedTypes": STATION_TYPES,
@@ -428,12 +441,12 @@ def find_nearest_station(lat: float, lng: float) -> Station | None:
                 "places.displayName,places.location,"
                 "places.types,places.primaryType"
             ),
+            response_model=PlacesResponse,
         )
     except APIError as e:
         print(f"  Nearby error: {e}", file=sys.stderr)
         return None
 
-    response = PlacesResponse.model_validate(data)
     if not response.places:
         return None
     top = response.places[0]
@@ -461,7 +474,7 @@ def walk_duration_minutes(
     estimate.
     """
     try:
-        data = _google_post(
+        response = _google_post(
             ROUTES_URL,
             body={
                 "origin": {"location": {"latLng": {"latitude": from_lat, "longitude": from_lng}}},
@@ -470,12 +483,12 @@ def walk_duration_minutes(
                 "units": "METRIC",
             },
             field_mask="routes.duration,routes.distanceMeters",
+            response_model=RoutesResponse,
         )
     except APIError as e:
         print(f"  Routes error: {e}", file=sys.stderr)
         return None
 
-    response = RoutesResponse.model_validate(data)
     if not response.routes:
         return None
     m = re.match(r"(\d+)s$", response.routes[0].duration)
@@ -500,8 +513,7 @@ def _overpass_query(query: str) -> list[dict[str, str]]:
     for url in OVERPASS_MIRRORS:
         _overpass_wait()
         try:
-            data = _overpass_post(url, query)
-            response = OverpassResponse.model_validate(data)
+            response = _overpass_post(url, query, response_model=OverpassResponse)
         except APIError as e:
             host = url.split("/")[2]
             errors.append(f"{host}: {e}")

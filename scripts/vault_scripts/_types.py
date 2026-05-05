@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, RootModel
 
 # --- Pydantic models: external API responses ---
 
@@ -86,6 +86,11 @@ class NominatimResult(_ExtraIgnore):
     lat: str
     lon: str
     display_name: str = ""
+
+
+class NominatimResponse(RootModel[list[NominatimResult]]):
+    """Nominatim returns a JSON array, not an envelope object. Wrap in
+    RootModel so the standard validated-request helper applies."""
 
 
 # --- TypedDicts: internal dict shapes ---
