@@ -23,14 +23,16 @@ import sys
 
 from PIL import Image
 from PIL.Image import Image as PILImage, Resampling
-import requests
 
+from vault_scripts._retry import request_image_bytes, wikimedia_retry
 from vault_scripts._utils import (
     VAULT,
     add_inline_embed,
     find_images_dir,
     parse_typed_args,
     patch_field,
+    rewrite_wikimedia_to_thumb,
+    user_agent,
 )
 
 MAX_WIDTH = 1200
@@ -38,15 +40,18 @@ QUALITY = 80
 DOWNLOAD_TIMEOUT_S = 30
 
 
+@wikimedia_retry
 def download_image(url: str) -> PILImage:
-    """Download an image from a URL and return a PIL Image."""
-    resp = requests.get(
-        url,
-        headers={"User-Agent": "vault-tools/1.0 (personal-use)"},
+    """Download an image; Wikimedia URLs auto-rewrite via :func:`rewrite_wikimedia_to_thumb`."""
+    fetch_url = rewrite_wikimedia_to_thumb(url)
+    if fetch_url != url:
+        print(f"  Using Wikimedia thumb: {fetch_url}")
+    data = request_image_bytes(
+        fetch_url,
         timeout=DOWNLOAD_TIMEOUT_S,
+        headers={"User-Agent": user_agent()},
     )
-    resp.raise_for_status()
-    return Image.open(BytesIO(resp.content))
+    return Image.open(BytesIO(data))
 
 
 def process_image(img: PILImage, *, max_width: int = MAX_WIDTH) -> PILImage:

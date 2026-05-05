@@ -88,6 +88,28 @@ overpass_retry = retry(
 )
 
 
+# Wikimedia's per-minute (not per-hour) global rate limits introduced in
+# 2026 mean bursty failures arrive faster than under Google's per-day
+# quota — jittered backoff avoids thundering-herd pressure on the
+# per-minute bucket. Four attempts x max 16s wait ≈ 35s of backoff plus
+# up to 4x per-attempt request timeout in worst case.
+wikimedia_retry = retry(
+    stop=stop_after_attempt(4),
+    wait=wait_random_exponential(multiplier=1.5, max=16),
+    retry=retry_if_exception_type(APIError),
+    reraise=True,
+)
+
+
+def _classify_transient(resp: requests.Response) -> None:
+    """Raise :class:`TransientHTTPError` on 429/5xx, otherwise raise on
+    other 4xx/5xx via ``raise_for_status``. Shared between request helpers
+    so the transient-vs-permanent split stays consistent."""
+    if resp.status_code in _TRANSIENT_STATUS:
+        raise TransientHTTPError(f"HTTP {resp.status_code}")
+    resp.raise_for_status()
+
+
 def request_json(
     method: str,
     url: str,
@@ -116,11 +138,23 @@ def request_json(
         data=data,
         params=params,
     )
-    if resp.status_code in _TRANSIENT_STATUS:
-        raise TransientHTTPError(f"HTTP {resp.status_code}")
-    resp.raise_for_status()
+    _classify_transient(resp)
     if ok is not None and not ok(resp):
         raise OverpassBusyError("response predicate failed")
     # requests.Response.json() is annotated Any; narrow to object so
     # callers have to validate through Pydantic before acting on it.
     return cast(object, resp.json())
+
+
+def request_image_bytes(
+    url: str,
+    *,
+    timeout: int,
+    headers: dict[str, str] | None = None,
+) -> bytes:
+    """GET a binary payload (image). Raises :class:`TransientHTTPError` on
+    429/5xx so a tenacity decorator (e.g. :data:`wikimedia_retry`) can back
+    off and retry."""
+    resp = requests.get(url, timeout=timeout, headers=headers)
+    _classify_transient(resp)
+    return resp.content

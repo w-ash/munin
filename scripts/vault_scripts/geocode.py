@@ -70,6 +70,7 @@ from vault_scripts._utils import (
     rel_path,
     require_env,
     resolve_file_arg,
+    user_agent,
     yaml_scalar,
 )
 
@@ -77,7 +78,6 @@ VENUE_TAGS: frozenset[str] = frozenset(
     {"dining-option", "experience-option", "shopping-option", "accommodation-option"}
 )
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-USER_AGENT = "vault-tools/1.0 (personal-use)"
 PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 PLACES_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
 ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
@@ -180,7 +180,7 @@ def _overpass_post(url: str, query: str) -> object:
     return request_json(
         "POST", url,
         data={"data": query},
-        headers={"User-Agent": USER_AGENT},
+        headers={"User-Agent": user_agent()},
         timeout=OVERPASS_TIMEOUT_S,
         ok=_is_json_response,
     )
@@ -251,11 +251,13 @@ def detect_country_code(place: PlacesPlace) -> str | None:
 
 
 def build_maps_url(lat: float, lng: float, place_id: str = "") -> str:
-    """Includes ``query_place_id`` when available — these links are permanent
-    and survive business name/address changes, unlike name-based URLs.
+    """Place-card URL when ``place_id`` is available — direct link to the place,
+    no coordinate dependency. These links are permanent and survive business
+    name/address changes. Coordinates fallback only when ``place_id`` is missing
+    (Nominatim path).
     """
     if place_id:
-        return f"https://www.google.com/maps/search/?api=1&query={lat},{lng}&query_place_id={place_id}"
+        return f"https://www.google.com/maps/place/?q=place_id:{place_id}"
     return f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
 
 
@@ -335,7 +337,7 @@ def geocode_nominatim(query: str) -> GeoResult | None:
         data = _nominatim_get(
             NOMINATIM_URL,
             params={"q": query, "format": "json", "limit": "3"},
-            headers={"User-Agent": USER_AGENT},
+            headers={"User-Agent": user_agent()},
         )
     except APIError as e:
         print(f"  Nominatim error: {e}", file=sys.stderr)

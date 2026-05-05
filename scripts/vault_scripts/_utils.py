@@ -8,14 +8,17 @@ the package's entry-point scripts. Env loading is handled upstream by
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 from pathlib import Path
 import re
 import sys
 from typing import cast
+from urllib.parse import urlparse, urlunparse
 
 import frontmatter
+import requests
 import yaml
 
 # Keep __pycache__ out of the iCloud-synced vault tree
@@ -78,6 +81,25 @@ def require_env(name: str) -> str:
     return val
 
 
+@functools.cache
+def user_agent(client: str = "vault-tools") -> str:
+    """Wikimedia/Nominatim-compliant User-Agent.
+
+    Format per the Wikimedia Foundation User-Agent Policy and Nominatim's
+    usage policy: ``<client> (<contact>) <library>/<version>``. Version
+    segment omitted (policy says "parts that are not applicable can be
+    omitted") to avoid drift between a hardcoded constant and the actual
+    package version.
+
+    Contact email comes from ``VAULT_CONTACT_EMAIL``; missing env var hard-
+    fails via :func:`require_env`. Cached so the env check fires once on
+    first call (still after ``--help`` and other no-network paths) instead
+    of mid-batch on call N.
+    """
+    contact = require_env("VAULT_CONTACT_EMAIL")
+    return f"{client} (mailto:{contact}) requests/{requests.__version__}"
+
+
 def resolve_file_arg(file_arg: str) -> Path:
     """Resolve a CLI ``--file`` argument to an existing path.
 
@@ -94,6 +116,40 @@ def resolve_file_arg(file_arg: str) -> Path:
         print(json.dumps({"status": "error", "error": f"File not found: {file_arg}"}))
         sys.exit(1)
     return file_path
+
+
+# --- Wikimedia URL helpers ---
+
+# /thumb/ is edge-cached and on a more permissive rate-limit tier than
+# full-res — auto-rewrite per Wikimedia's media-reuse guide.
+_WIKIMEDIA_HOST = "upload.wikimedia.org"
+_WIKIMEDIA_FULL_RES_RE = re.compile(
+    r"^/wikipedia/commons/(?P<a>[0-9a-f])/(?P<ab>[0-9a-f]{2})/(?P<file>[^/]+)$",
+)
+# CDN-blessed widths: 320, 640, 960, 1280, 1920, 3840. Anything else 400s.
+WIKIMEDIA_THUMB_WIDTH = 1280
+
+
+def rewrite_wikimedia_to_thumb(url: str, width: int = WIKIMEDIA_THUMB_WIDTH) -> str:
+    """Rewrite full-res ``upload.wikimedia.org`` URLs to ``/thumb/.../{N}px-`` form.
+
+    Pass-through for non-Wikimedia URLs and URLs already on the ``/thumb/``
+    path. SVG sources get a ``.png`` suffix on the thumb filename — Wikimedia's
+    thumbor renders SVG to PNG, and Pillow can decode the result natively
+    (it can't open SVG sources directly anyway).
+    """
+    parts = urlparse(url)
+    if parts.netloc != _WIKIMEDIA_HOST:
+        return url
+    m = _WIKIMEDIA_FULL_RES_RE.match(parts.path)
+    if m is None:
+        return url
+    file = m["file"]
+    thumb_file = f"{width}px-{file}"
+    if file.lower().endswith(".svg"):
+        thumb_file = f"{thumb_file}.png"
+    new_path = f"/wikipedia/commons/thumb/{m['a']}/{m['ab']}/{file}/{thumb_file}"
+    return urlunparse(parts._replace(path=new_path))
 
 
 # --- Frontmatter helpers ---
