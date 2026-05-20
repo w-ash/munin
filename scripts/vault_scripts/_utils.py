@@ -161,10 +161,34 @@ def fm_str(metadata: dict[str, object], field: str) -> str:
     return str(metadata.get(field, "")).strip().strip('"')
 
 
+_WIKILINK_RE = re.compile(r"^\[\[(?P<target>[^|\]]+)(?:\|(?P<alias>[^\]]+))?\]\]$")
+
+
+def strip_wikilink(value: str) -> str:
+    """Reduce an Obsidian wikilink to its display value.
+
+    ``[[Tokyo]]`` → ``Tokyo``; ``[[Tokyo|TYO]]`` → ``TYO``. Non-wikilink
+    input is returned unchanged (modulo surrounding whitespace). Use at
+    sites that compose the value into external queries / URLs where the
+    raw bracket syntax would corrupt the result.
+    """
+    m = _WIKILINK_RE.match(value.strip())
+    if not m:
+        return value.strip()
+    alias = m.group("alias")
+    target = m.group("target")
+    return (alias if alias is not None else target).strip()
+
+
 def _match_field_line(field: str) -> tuple[str, str]:
     """Return (pattern_with_value, pattern_empty) regexes for a frontmatter field."""
     escaped = re.escape(field)
     return rf'^({escaped}:) .*$', rf'^({escaped}:)\s*$'
+
+
+def has_field(text: str, field: str) -> bool:
+    """Whether a frontmatter field key is present at the start of any line."""
+    return re.search(rf'^{re.escape(field)}:', text, flags=re.MULTILINE) is not None
 
 
 def yaml_scalar(value: object) -> str:
@@ -189,29 +213,32 @@ def patch_field(text: str, field: str, value: object) -> str:
     Replaces the value if the field exists, otherwise inserts before the
     closing ``---``.
     """
-    escaped = re.escape(field)
+    if not has_field(text, field):
+        return insert_before_closing_fence(text, field, value)
     yaml_val = yaml_scalar(value)
-    if re.search(rf'^{escaped}:', text, flags=re.MULTILINE):
-        pat_val, pat_empty = _match_field_line(field)
-        replacement = rf'\1 {yaml_val}'
-        new_text = re.sub(pat_val, replacement, text, count=1, flags=re.MULTILINE)
-        if new_text != text:
-            return new_text
-        return re.sub(pat_empty, replacement, text, count=1, flags=re.MULTILINE)
-    return insert_before_closing_fence(text, field, value)
+    pat_val, pat_empty = _match_field_line(field)
+    replacement = rf'\1 {yaml_val}'
+    new_text = re.sub(pat_val, replacement, text, count=1, flags=re.MULTILINE)
+    if new_text != text:
+        return new_text
+    return re.sub(pat_empty, replacement, text, count=1, flags=re.MULTILINE)
 
 
 def insert_field_after(
     text: str, after_field: str, new_field: str, value: object,
 ) -> str:
-    """Insert a new frontmatter field after an existing one."""
+    """Insert a new frontmatter field after an existing one.
+
+    Preserves the anchor's full line — value and all — by capturing the
+    entire line in the regex and re-emitting it before the new field. The
+    earlier ``_match_field_line`` patterns are intended for ``patch_field``
+    (replace-value semantics) and would erase the anchor's value here.
+    """
     yaml_val = yaml_scalar(value)
+    escaped = re.escape(after_field)
+    pat = rf'^({escaped}:.*)$'
     replacement = rf'\1\n{new_field}: {yaml_val}'
-    pat_val, pat_empty = _match_field_line(after_field)
-    new_text = re.sub(pat_val, replacement, text, count=1, flags=re.MULTILINE)
-    if new_text == text:
-        new_text = re.sub(pat_empty, replacement, text, count=1, flags=re.MULTILINE)
-    return new_text
+    return re.sub(pat, replacement, text, count=1, flags=re.MULTILINE)
 
 
 def insert_before_closing_fence(text: str, field: str, value: object) -> str:

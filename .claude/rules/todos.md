@@ -1,6 +1,7 @@
 ---
 description: Rules for working with weekly todo files in the Todos/ folder
-globs: Todos/**
+paths:
+  - "Todos/**"
 ---
 
 # Todo Conventions

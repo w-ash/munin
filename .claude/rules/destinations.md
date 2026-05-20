@@ -1,6 +1,7 @@
 ---
 description: Schema and conventions for trip destination research files
-globs: Travel/*/Destinations/**
+paths:
+  - "Travel/*/Destinations/**"
 ---
 
 # Trip Destinations
@@ -16,7 +17,10 @@ status: considering    # considering | shortlist | chosen | ruled-out
 destination: ""
 vibe: ""
 recommended_by: [Claude]
-spiritual: low         # low | moderate | high
+spiritual: low         # low | moderate | high — "high" means animistic
+                       #   (primeval forests, sacred groves, moss, mist,
+                       #   waterfalls, ancient shrines subsumed by nature),
+                       #   NOT religious / temple-stay / monastery / meditation
 nature: low            # low | moderate | high
 art: low               # low | moderate | high
 onsen: false
@@ -27,6 +31,8 @@ logistics: low         # lowest | low | medium | high | highest
 google_maps_url: ""
 cover: ""
 ```
+
+**`notes:` (if present) is user-reserved** (see `.claude/rules/travel.md`). Don't write to it unless Ash asks.
 
 ## Body
 

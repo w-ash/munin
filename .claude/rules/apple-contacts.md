@@ -1,6 +1,7 @@
 ---
 description: How to enrich People notes using the local Apple Contacts database
-globs: People/**
+paths:
+  - "People/**"
 ---
 
 # Apple Contacts Enrichment

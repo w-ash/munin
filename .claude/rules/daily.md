@@ -1,6 +1,7 @@
 ---
 description: Rules for daily journal entries in the Daily/ folder
-globs: Daily/**
+paths:
+  - "Daily/**"
 ---
 
 # Daily Journal Conventions

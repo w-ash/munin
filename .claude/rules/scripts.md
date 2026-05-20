@@ -1,7 +1,7 @@
 ---
 description: Standards for Python scripts in scripts/
-globs:
-  - scripts/**
+paths:
+  - "scripts/**"
 ---
 
 # Vault Scripts

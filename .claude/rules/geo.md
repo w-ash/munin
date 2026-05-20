@@ -1,8 +1,8 @@
 ---
 description: How to find and set geo-location fields on travel and restaurant files
-globs:
-  - Travel/**
-  - Restaurants/**
+paths:
+  - "Travel/**"
+  - "Restaurants/**"
 ---
 
 # Geo-Location

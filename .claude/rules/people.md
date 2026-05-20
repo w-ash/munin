@@ -1,6 +1,7 @@
 ---
 description: Rules for person notes in the People/ folder
-globs: People/**
+paths:
+  - "People/**"
 ---
 
 # People Conventions

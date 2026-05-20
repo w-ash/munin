@@ -1,6 +1,7 @@
 ---
 description: Schema for local restaurant notes in Restaurants/
-globs: Restaurants/**
+paths:
+  - "Restaurants/**"
 ---
 
 # Restaurant Notes

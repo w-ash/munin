@@ -11,15 +11,23 @@ Usage:
     scripts/vault-tool geocode batch Japan26 --write --stations
     scripts/vault-tool geocode batch Japan26 --write --lines         # Overpass pass
     scripts/vault-tool geocode batch Japan26 --write --stations --lines
+    scripts/vault-tool geocode batch Japan26 --write --refresh-urls   # rewrite malformed URLs
 
 Tiers:
-    Default    → Essentials SKU (10k free/month): coordinates, address, maps URL
-    --enrich   → Enterprise SKU (1k free/month): + website, hours, rating, price
-    --stations → Places Nearby (5k free/month) + Routes (10k free/month) —
-                 fills nearest_station + walk_time_to_station. Fast, stable.
-    --lines    → Overpass/OSM (free, ~1s throttle, flaky) — fills station_lines
-                 only. Slow; runs as a separate pass. Can combine with
-                 --stations, or run alone when nearest_station is already set.
+    Default      → Essentials SKU (10k free/month): coordinates, address, maps URL
+    --enrich     → Enterprise SKU (1k free/month): + website, hours, rating, price
+    --stations   → Places Nearby (5k free/month) + Routes (10k free/month) —
+                   fills nearest_station + walk_time_to_station. Fast, stable.
+    --lines      → Overpass/OSM (free, ~1s throttle, flaky) — fills station_lines
+                   only. Slow; runs as a separate pass. Can combine with
+                   --stations, or run alone when nearest_station is already set.
+    --refresh-urls → Re-classify any google_maps_url that isn't a CID URL
+                     (`https://maps.google.com/?cid=<n>`) as a gap, so the
+                     Places API rewrites it. CID is the form Google's own
+                     Share button generates and the only shape the iOS
+                     Google Maps app handles reliably. Closed venues /
+                     Nominatim-only matches are surfaced as URL skips at
+                     the end of the run.
 """
 
 from __future__ import annotations
@@ -71,6 +79,7 @@ from vault_scripts._utils import (
     rel_path,
     require_env,
     resolve_file_arg,
+    strip_wikilink,
     user_agent,
     yaml_scalar,
 )
@@ -213,12 +222,12 @@ def _overpass_wait() -> None:
 
 FIELDS_ESSENTIALS = (
     "places.id,places.formattedAddress,places.displayName,"
-    "places.location,places.addressComponents"
+    "places.location,places.addressComponents,"
+    "places.googleMapsUri,places.businessStatus,places.types"
 )
 FIELDS_ENRICHED = (
     FIELDS_ESSENTIALS + ","
-    "places.googleMapsUri,places.primaryType,places.businessStatus,"
-    "places.websiteUri,places.regularOpeningHours,"
+    "places.primaryType,places.websiteUri,places.regularOpeningHours,"
     "places.rating,places.userRatingCount,places.priceLevel"
 )
 
@@ -263,15 +272,52 @@ def detect_country_code(place: PlacesPlace) -> str | None:
     return None
 
 
-def build_maps_url(lat: float, lng: float, place_id: str = "") -> str:
-    """Place-card URL when ``place_id`` is available — direct link to the place,
-    no coordinate dependency. These links are permanent and survive business
-    name/address changes. Coordinates fallback only when ``place_id`` is missing
-    (Nominatim path).
+def is_malformed_maps_url(url: str) -> bool:
+    """A URL needs ``--refresh-urls`` when it's not the CID form Google ships
+    via its Share button and returns from the Places API's ``googleMapsUri``.
+
+    CID is the Google Business Profile identifier — the most permanent
+    anchor (survives owner / address / name changes) and the only shape
+    the iOS Google Maps app handles reliably. Both the legacy
+    ``?q=place_id:<id>`` form and the briefly-used ``query_place_id=<id>``
+    form fail on iOS, so we flag everything except ``cid=`` for refresh.
     """
-    if place_id:
-        return f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-    return f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+    return bool(url) and "cid=" not in url
+
+
+_NOMINATIM_REFUSAL_REASON = (
+    "No place match (Nominatim fallback — Google Places had no result). "
+    "The script can't confirm what establishment is at this address."
+)
+
+
+def validate_for_url(place: PlacesPlace | None) -> str | None:
+    """Return None when it's safe to write ``place.googleMapsUri`` as the
+    venue's URL, or a human-readable refusal reason. Refusal cases:
+
+    - ``place`` is None (Nominatim fallback — Google Places had no match)
+    - ``place.businessStatus`` is ``CLOSED_PERMANENTLY`` / ``CLOSED_TEMPORARILY``
+
+    Surfaced to the user so they can delete the entry or refile with more
+    context — silently writing a URL for a closed venue was the complaint
+    that drove this whole pipeline change.
+    """
+    if place is None:
+        return _NOMINATIM_REFUSAL_REASON
+    name = place.displayName.text if place.displayName else ""
+    address = place.formattedAddress
+    if place.businessStatus == "CLOSED_PERMANENTLY":
+        return (
+            f"Venue is permanently closed per Google Places. Matched: '{name}' "
+            f"at {address}. Delete this entry or refile with the current open "
+            f"location."
+        )
+    if place.businessStatus == "CLOSED_TEMPORARILY":
+        return (
+            f"Venue is temporarily closed per Google Places. Matched: '{name}' "
+            f"at {address}. Confirm reopening or refile with more context."
+        )
+    return None
 
 
 def format_hours(descriptions: list[str]) -> tuple[str, str]:
@@ -322,18 +368,21 @@ def geocode_google(query: str, options: GeocodeOptions) -> GeoResult | None:
             if local is not None:
                 address_local = local[0].formattedAddress
 
-    maps_url = place_en.googleMapsUri or build_maps_url(lat, lng, place_en.id)
-
     result: GeoResult = {
         "coordinates": f"{lat}, {lng}",
         "address": place_en.formattedAddress,
         "address_local": address_local,
-        "google_maps_url": maps_url,
+        "google_maps_url": place_en.googleMapsUri,
         "place_id": place_en.id,
         "confidence": "high" if candidates == 1 else "medium",
         "candidates": candidates,
         "source": "google-places",
     }
+
+    refusal = validate_for_url(place_en)
+    if refusal is not None:
+        result["url_validation_failed"] = refusal
+        result["google_maps_url"] = ""
 
     if options.enrich:
         result["enrichment"] = _enrichment_from(place_en)
@@ -367,11 +416,12 @@ def geocode_nominatim(query: str) -> GeoResult | None:
         "coordinates": f"{lat}, {lng}",
         "address": top.display_name,
         "address_local": "",
-        "google_maps_url": f"https://www.google.com/maps/search/?api=1&query={lat},{lng}",
+        "google_maps_url": "",
         "place_id": "",
         "confidence": "low",
         "candidates": len(response.root),
         "source": "nominatim",
+        "url_validation_failed": _NOMINATIM_REFUSAL_REASON,
     }
 
 
@@ -766,26 +816,36 @@ def get_station_info(
 # --- Query construction ---
 
 def build_query(metadata: dict[str, object]) -> str:
-    """Prefers ``address`` over ``name`` when available — the Places API
-    returns much more precise results for street addresses than for
-    business names (which can match neighborhoods instead).
+    """Prefers ``name`` + ``locality`` + ``address`` in that order, so the
+    Places API returns the *business* result rather than the building or
+    address. Address-led searches return the address's own place_id, which
+    is anchored to the building, not to the establishment inside.
 
     Checks both ``destination`` (travel files) and ``city`` (restaurant files).
+    Wikilink-typed fields (``destination``, ``neighborhood``) are reduced to
+    their display value before composition — raw ``[[Tokyo]]`` in the query
+    string makes Places return zero results.
     """
+    name = fm_str(metadata, "name") or fm_str(metadata, "name_jp")
+    locality = strip_wikilink(fm_str(metadata, "destination")) or fm_str(metadata, "city")
     address = fm_str(metadata, "address")
-    locality = fm_str(metadata, "destination") or fm_str(metadata, "city")
 
-    if address and len(address) > ADDRESS_MIN_LEN:
-        parts = [address]
-        if locality and locality.lower() not in address.lower():
+    if name:
+        parts: list[str] = [name]
+        if locality and locality.lower() not in name.lower():
             parts.append(locality)
+        if address and len(address) > ADDRESS_MIN_LEN:
+            parts.append(address)
         return ", ".join(parts)
 
-    parts: list[str] = []
-    for field_name in ("name", "name_jp", "neighborhood", "destination", "city"):
-        val = fm_str(metadata, field_name)
-        if val:
-            parts.append(val)
+    parts = [address] if address else []
+    if locality and locality.lower() not in address.lower():
+        parts.append(locality)
+    if not parts:
+        for field_name in ("neighborhood", "destination", "city"):
+            val = fm_str(metadata, field_name)
+            if val:
+                parts.append(strip_wikilink(val))
     return ", ".join(parts)
 
 
@@ -872,6 +932,7 @@ def detect_gaps(
     include_stations: bool = False,
     include_lines: bool = False,
     refresh_stations: bool = False,
+    refresh_urls: bool = False,
 ) -> dict[str, GapReason]:
     """Detect which geo fields need filling. Returns {field: reason}.
 
@@ -881,13 +942,18 @@ def detect_gaps(
     ``refresh_stations`` forces populated station fields into the gaps
     (behind the matching include flag) so `build_geo_updates` will
     overwrite with anchor-aware fresh lookups. ``nearest_station`` is
-    never refreshed — it's the anchor.
+    never refreshed — it's the anchor. ``refresh_urls`` re-classifies
+    any non-CID ``google_maps_url`` values as gaps so they get rewritten
+    to the CID form Google's API returns.
     """
     gaps: dict[str, GapReason] = {}
     if not fm_str(metadata, "address_local"):
         gaps["address_local"] = "missing"
-    if not fm_str(metadata, "google_maps_url"):
+    url = fm_str(metadata, "google_maps_url")
+    if not url:
         gaps["google_maps_url"] = "empty"
+    elif refresh_urls and is_malformed_maps_url(url):
+        gaps["google_maps_url"] = "malformed"
     if "coordinates" not in metadata or not fm_str(metadata, "coordinates"):
         gaps["coordinates"] = "missing"
     address = fm_str(metadata, "address")
@@ -1054,6 +1120,7 @@ class _Args(argparse.Namespace):
     stations: bool
     lines: bool
     refresh_stations: bool
+    refresh_urls: bool
 
 
 def cmd_lookup(args: _Args) -> None:
@@ -1085,6 +1152,7 @@ def _lookup_file(args: _Args) -> None:
         include_stations=args.stations,
         include_lines=args.lines,
         refresh_stations=args.refresh_stations,
+        refresh_urls=args.refresh_urls,
     )
     outcome = process_venue(
         file_path, post, text, gaps,
@@ -1143,7 +1211,21 @@ def _render_lookup_outcome(outcome: VenueOutcome, *, fallback_query: str) -> Non
             file=sys.stderr,
         )
 
+    _render_url_skip(outcome)
     _print_ok_json(query, outcome.result)
+
+
+def _render_url_skip(outcome: VenueOutcome) -> None:
+    """Stderr warning when the URL pipeline refused to emit a google_maps_url."""
+    reason = (outcome.result or {}).get("url_validation_failed", "")
+    if not reason:
+        return
+    print(
+        f"\n⚠  google_maps_url SKIPPED for {rel_path(outcome.path)}\n"
+        f"   reason: {reason}\n"
+        f"   action: delete this entry, or refile with updated address/name context\n",
+        file=sys.stderr,
+    )
 
 
 def cmd_batch(args: _Args) -> None:
@@ -1175,6 +1257,7 @@ def cmd_batch(args: _Args) -> None:
             include_stations=args.stations,
             include_lines=args.lines,
             refresh_stations=args.refresh_stations,
+            refresh_urls=args.refresh_urls,
         )
         if args.only_missing:
             # pyright widens the comprehension's value type to str; re-annotate
@@ -1205,6 +1288,7 @@ def cmd_batch(args: _Args) -> None:
         return
 
     errors: list[dict[str, str]] = []
+    url_skips: list[tuple[Path, str]] = []
     updated = 0
     skipped = 0
 
@@ -1245,7 +1329,16 @@ def cmd_batch(args: _Args) -> None:
             print("SKIP (no new data)", file=sys.stderr)
             skipped += 1
 
+        url_skip_reason = (outcome.result or {}).get("url_validation_failed", "")
+        if url_skip_reason:
+            url_skips.append((f, url_skip_reason))
+
     print(f"\nDone: {updated} updated, {skipped} skipped", file=sys.stderr)
+
+    if url_skips:
+        print(f"\nURL skips ({len(url_skips)}) — files needing manual review:", file=sys.stderr)
+        for path, reason in url_skips:
+            print(f"  - {rel_path(path)}\n      {reason}", file=sys.stderr)
 
     if errors:
         error_path = Path(__file__).resolve().parent / "geocode_errors.json"
@@ -1269,6 +1362,7 @@ def main() -> None:
     _ = lookup_parser.add_argument("--stations", action="store_true", help="Fill nearest_station + walk_time_to_station via Google (fast)")
     _ = lookup_parser.add_argument("--lines", action="store_true", help="Fill station_lines via Overpass/OSM (slow, ~1s/call). Combine with --stations, or run alone when nearest_station is already set")
     _ = lookup_parser.add_argument("--refresh-stations", action="store_true", help="Force-overwrite walk_time_to_station and station_lines even when already set (nearest_station is preserved as the anchor)")
+    _ = lookup_parser.add_argument("--refresh-urls", action="store_true", help="Re-classify any google_maps_url that isn't a CID URL (https://maps.google.com/?cid=...) as a gap, so it gets rewritten to the form Google's API returns.")
 
     batch_parser = subparsers.add_parser("batch", help="Batch geocode venue files")
     _ = batch_parser.add_argument("trip", help="Trip folder name under Travel/ (e.g. Japan26)")
@@ -1277,6 +1371,7 @@ def main() -> None:
     _ = batch_parser.add_argument("--stations", action="store_true", help="Fill nearest_station + walk_time_to_station via Google (fast)")
     _ = batch_parser.add_argument("--lines", action="store_true", help="Fill station_lines via Overpass/OSM (slow, ~1s/call). Combine with --stations, or run alone when nearest_station is already set")
     _ = batch_parser.add_argument("--refresh-stations", action="store_true", help="Force-overwrite walk_time_to_station and station_lines even when already set")
+    _ = batch_parser.add_argument("--refresh-urls", action="store_true", help="Re-classify any google_maps_url that isn't a CID URL (https://maps.google.com/?cid=...) as a gap, so it gets rewritten to the form Google's API returns.")
     _ = batch_parser.add_argument("--only-missing", choices=list(GEO_FIELDS) + list(STATION_FIELDS), help="Only fill this specific field")
     _ = batch_parser.add_argument("--dir", choices=sorted(GEO_CATEGORIES), help="Limit to one category directory")
 

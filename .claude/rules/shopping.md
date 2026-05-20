@@ -1,6 +1,7 @@
 ---
 description: Schema and conventions for trip shopping research files
-globs: Travel/*/Shopping/**
+paths:
+  - "Travel/*/Shopping/**"
 ---
 
 # Trip Shopping
@@ -17,11 +18,23 @@ Skip: mass-produced souvenirs, branded streetwear resale, department store floor
 Shared fields in `.claude/rules/travel.md`. On top of those:
 
 ```yaml
-type: vintage        # vintage | crafts | market | department | specialty | art-supplies | antiques
+type: vintage        # see vocabulary below
 hours: ""
 closed: ""
 website: ""
 ```
+
+**`type` vocabulary** (fine-grained — bucket-by-type drives tier comparison, so each type should hold genuinely comparable venues):
+
+- *Crafts / made-by-hand* — `bags`, `shoes`, `ceramics`, `textiles`, `paper`, `knives`, `chopsticks`, `lacquer`, `fans`, `brushes`, `books`
+- *Single-product specialists* — `tea`, `food`, `records`, `gachapon`, `electronics`
+- *Lifestyle / fashion* — `clothing`, `homewares`
+- *Mode-of-shopping* — `vintage`, `market`, `department`, `antiques`, `art-supplies`
+- *Last-resort fallback* — `crafts`, `specialty` — only when a venue genuinely doesn't fit a product bucket (e.g., multi-shop retail complex, multi-floor everything-store). Prefer adding a new fine-grained type over reaching for these.
+
+**`notes:` is user-reserved** (see `.claude/rules/travel.md`). Don't write to it unless Ash asks.
+
+`tier` is on the shared frontmatter — see the **Tier list** section in `.claude/rules/travel.md` for definitions and the **Sourcing gate** that gates SS/S. Bucket by `type`; each type holds the comparable peer set (HERZ competes with other `bags`, not with Hakuchikudo's fans). Shopping-specific tier signals will be added once we've learned from the Tokyo dining tier pass.
 
 ## Body
 

@@ -1,6 +1,7 @@
 ---
 description: Rules for working with idea documents in the Ideas/ folder
-globs: Ideas/**
+paths:
+  - "Ideas/**"
 ---
 
 # Ideas Conventions

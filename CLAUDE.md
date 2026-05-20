@@ -28,11 +28,14 @@ created: "YYYY-MM-DD"
 
 ## Obsidian CLI
 
-The Obsidian CLI (1.12+) is available. **Prefer CLI commands over raw file operations** — the CLI respects Obsidian's index, auto-updates wikilinks on move, and preserves metadata. Use `format=json` for machine-readable output.
+CLI 1.12+ at `/usr/local/bin/obsidian`. Prefer it for moves, renames, property edits, and base queries — preserves wikilinks + index.
 
-Notes: `file` resolves by name (like wikilinks), `path` is exact. Use `format=json` where available.
+- **`key=value`, not `--flag`.** See rule #9.
+- **`create` takes `name=` or `path=`, not `file=`** — `file=` is for existing files; on `create` it drops and you get `Untitled.md`.
+- **No `silent` flag.** Omit `open`/`newtab` to avoid focus steal.
+- `file=` resolves by name (like wikilinks); `path=` is exact. `format=json` on most read commands.
 
-Use the `obsidian:obsidian-cli` skill for full command reference. Always pass `silent` on create/modify commands to prevent Obsidian from stealing focus.
+Full reference: `obsidian:obsidian-cli` skill.
 
 ## Bases
 
@@ -60,4 +63,5 @@ Use the `obsidian:obsidian-cli` skill for full command reference. Always pass `s
 6. **Plan mode is read-only.** No obsidian write commands (`create`, `append`, `prepend`, `move`, `rename`, `delete`, `property:set`, `property:remove`, `task` mutations, `base:create`, `history:restore`) during plan mode.
 7. **Search the web** for factual details rather than relying on training data.
 8. **Preserve Ash's voice.** When capturing his words (chat dictation or direct typing), keep them verbatim — no edits, no injected wikilinks, no typo fixes. Claude's synthesis (wikilinks, structured summaries) goes in a clearly-marked section below, not interleaved. See `.claude/rules/daily.md` for the full convention; same default applies to Ideas, Projects, Restaurants visits, and any note built from chat.
+9. **Obsidian-CLI uses `key=value` args.** For help: `obsidian help daily`, `obsidian help create`. For args: `obsidian daily path="Daily/2026-05-19.md"`, `obsidian create name="My Note"`. Other syntaxes silently drop the arg while still firing the subcommand.
 </important>

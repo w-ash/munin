@@ -94,7 +94,7 @@ class NominatimResponse(RootModel[list[NominatimResult]]):
 
 # --- TypedDicts: internal dict shapes ---
 
-GapReason = Literal["missing", "empty", "non_latin", "refresh"]
+GapReason = Literal["missing", "empty", "non_latin", "refresh", "malformed"]
 Confidence = Literal["high", "medium", "low"]
 Source = Literal["google-places", "nominatim"]
 
@@ -139,9 +139,15 @@ class _GeoResultBase(TypedDict):
 
 class GeoResult(_GeoResultBase, total=False):
     """Base fields always present; ``enrichment`` only when ``--enrich``,
-    ``station`` only when ``--stations``."""
+    ``station`` only when ``--stations``. ``url_validation_failed`` is set
+    when the URL pipeline refused to emit a ``google_maps_url`` — closed
+    venue per ``businessStatus`` or no Places match (Nominatim fallback) —
+    so callers can surface the issue to the user instead of silently
+    dropping the field.
+    """
     enrichment: Enrichment
     station: StationInfo
+    url_validation_failed: str
 
 
 # --- Config dataclasses ---
