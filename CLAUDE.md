@@ -1,4 +1,4 @@
-# Personal Vault — CLAUDE.md
+# Personal Vault: CLAUDE.md
 
 This is Ash Wright's personal knowledge base. It is managed with Obsidian and is NOT a code project.
 
@@ -16,7 +16,7 @@ Projects/          → Active project plans with concrete implementation steps
 Restaurants/       → Restaurant notes (tagged #restaurant), with Bases views for tracking
 Templates/         → Note templates
 Todos/             → Weekly todo files, Backlog.md, Routines.md
-Work/              → Work notes (staging — move to work vault when ready)
+Work/              → Work notes (staging; move to work vault when ready)
 ```
 
 ## Frontmatter Convention
@@ -28,10 +28,10 @@ created: "YYYY-MM-DD"
 
 ## Obsidian CLI
 
-CLI 1.12+ at `/usr/local/bin/obsidian`. Prefer it for moves, renames, property edits, and base queries — preserves wikilinks + index.
+CLI 1.12+ at `/usr/local/bin/obsidian`. Prefer it for moves, renames, property edits, and base queries. Preserves wikilinks + index.
 
 - **`key=value`, not `--flag`.** See rule #9.
-- **`create` takes `name=` or `path=`, not `file=`** — `file=` is for existing files; on `create` it drops and you get `Untitled.md`.
+- **`create` takes `name=` or `path=`, not `file=`**. `file=` is for existing files; on `create` it drops and you get `Untitled.md`.
 - **No `silent` flag.** Omit `open`/`newtab` to avoid focus steal.
 - `file=` resolves by name (like wikilinks); `path=` is exact. `format=json` on most read commands.
 
@@ -40,9 +40,9 @@ Full reference: `obsidian:obsidian-cli` skill.
 ## Bases
 
 `.base` files create database-like table views over vault notes. They filter by tag (e.g. `file.hasTag("restaurant")`), display properties as columns, and support formula columns and per-view filters. Used in:
-- `People/` — People.base, Pets.base
-- `Restaurants/` — All Restaurants, Want to Try, Favorites, Recs for Friends
-- `Travel/Japan26/` — Destinations, Experiences, Dining, Shopping comparison tables
+- `People/`: People.base, Pets.base
+- `Restaurants/`: All Restaurants, Want to Try, Favorites, Recs for Friends
+- `Travel/Japan26/`: Destinations, Experiences, Dining, Shopping comparison tables
 
 ## Web Search vs Defuddle
 
@@ -55,13 +55,14 @@ Full reference: `obsidian:obsidian-cli` skill.
 ## Rules
 
 <important>
-1. **Move, don't delete.** Use `obsidian move`/`obsidian rename`. Never delete+recreate — destroys creation date.
+1. **Move, don't delete.** Use `obsidian move`/`obsidian rename`. Never delete+recreate; it destroys creation date.
 2. **Preserve file metadata.** Creation dates are meaningful. Never reset timestamps.
 3. **Use `[[wikilinks]]`** for all entity references. Check if related notes exist; offer to create or update them.
 4. **Ask before reorganizing.** Propose a plan and get approval before moving/restructuring files.
 5. **Don't modify shared Base files** (*.base outside Templates/) without asking.
 6. **Plan mode is read-only.** No obsidian write commands (`create`, `append`, `prepend`, `move`, `rename`, `delete`, `property:set`, `property:remove`, `task` mutations, `base:create`, `history:restore`) during plan mode.
 7. **Search the web** for factual details rather than relying on training data.
-8. **Preserve Ash's voice.** When capturing his words (chat dictation or direct typing), keep them verbatim — no edits, no injected wikilinks, no typo fixes. Claude's synthesis (wikilinks, structured summaries) goes in a clearly-marked section below, not interleaved. See `.claude/rules/daily.md` for the full convention; same default applies to Ideas, Projects, Restaurants visits, and any note built from chat.
+8. **Preserve Ash's voice.** When capturing his words (chat dictation or direct typing), keep them verbatim, with no edits, no injected wikilinks, no typo fixes. Claude's synthesis (wikilinks, structured summaries) goes in a clearly-marked section below, not interleaved. See `.claude/rules/daily.md` for the full convention; same default applies to Ideas, Projects, Restaurants visits, and any note built from chat.
 9. **Obsidian-CLI uses `key=value` args.** For help: `obsidian help daily`, `obsidian help create`. For args: `obsidian daily path="Daily/2026-05-19.md"`, `obsidian create name="My Note"`. Other syntaxes silently drop the arg while still firing the subcommand.
+10. **Write in plain punctuation.** In prose Claude writes (summaries, note bodies, synthesis, chat replies), use periods, commas, colons, semicolons, and parentheses, keeping en dashes for numeric ranges. This keeps em dashes and other AI-slop tells out of the writing so it reads as Ash's own. Full standard in `.claude/rules/writing.md`. Ash's verbatim words stay exactly as written (rule #8).
 </important>
