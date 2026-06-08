@@ -70,11 +70,22 @@ APIError: tuple[type[BaseException], ...] = (
     OverpassUnavailableError,
 )
 
+# The subset worth retrying a single request on. Hard 4xx (raise_for_status
+# -> requests.HTTPError) and schema drift (ValidationError) stay in APIError
+# so callers still catch them, but retrying can't help — they fail fast
+# instead of burning the full backoff budget on a deterministic failure.
+_RETRYABLE: tuple[type[BaseException], ...] = (
+    TransientHTTPError,
+    OverpassBusyError,
+    requests.ConnectionError,
+    requests.Timeout,
+)
+
 
 google_retry = retry(
     stop=stop_after_attempt(3),
     wait=wait_random_exponential(multiplier=1, max=8),
-    retry=retry_if_exception_type(APIError),
+    retry=retry_if_exception_type(_RETRYABLE),
     reraise=True,
 )
 
@@ -82,7 +93,7 @@ google_retry = retry(
 overpass_retry = retry(
     stop=stop_after_attempt(2),
     wait=wait_exponential(multiplier=1.1, min=1, max=8),
-    retry=retry_if_exception_type(APIError),
+    retry=retry_if_exception_type(_RETRYABLE),
     reraise=True,
 )
 
@@ -95,7 +106,7 @@ overpass_retry = retry(
 wikimedia_retry = retry(
     stop=stop_after_attempt(4),
     wait=wait_random_exponential(multiplier=1.5, max=16),
-    retry=retry_if_exception_type(APIError),
+    retry=retry_if_exception_type(_RETRYABLE),
     reraise=True,
 )
 

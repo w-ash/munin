@@ -11,13 +11,19 @@ Daily/             → Daily journal entries
 Finance/           → Budget, bills, financial planning
 Health/            → Fitness logs, health tracking, goals
 Ideas/             → Explorations, things to investigate
-People/            → Person notes (tagged #person) in entries/, with People.base and Pets.base views
-Projects/          → Active project plans with concrete implementation steps
-Restaurants/       → Restaurant notes (tagged #restaurant), with Bases views for tracking
+Ontology/          → Knowledge notes (#ontology) in entries/, sources (#source) in sources/ (Entries.base, Sources.base)
+People/            → Person notes (#person) in entries/ (People.base)
+Pets/              → Pet notes (#pet) in entries/ (Pets.base)
+Projects/          → Project summaries and plans (#project)
+Restaurants/       → Local restaurant notes (#restaurant) in entries/ (All Restaurants.base)
+Shops/             → Local shop notes (#shop) in entries/ (All Shops.base)
 Templates/         → Note templates
 Todos/             → Weekly todo files, Backlog.md, Routines.md
+Travel/            → Trip planning; one folder per trip with a hub note + category subfolders/bases
 Work/              → Work notes (staging; move to work vault when ready)
 ```
+
+Entity folders share one shape: a `<Name>.base` at the folder root over an `entries/` subfolder holding the tagged notes (People, Pets, Restaurants, Shops, Ontology).
 
 ## Frontmatter Convention
 
@@ -39,9 +45,10 @@ Full reference: `obsidian:obsidian-cli` skill.
 
 ## Bases
 
-`.base` files create database-like table views over vault notes. They filter by tag (e.g. `file.hasTag("restaurant")`), display properties as columns, and support formula columns and per-view filters. Used in:
-- `People/`: People.base, Pets.base
-- `Restaurants/`: All Restaurants, Want to Try, Favorites, Recs for Friends
+`.base` files create database-like table views over vault notes. They filter by tag (e.g. `file.hasTag("restaurant")`) or by folder (`file.inFolder(...)`, which includes subfolders), display properties as columns, and support formula columns and per-view filters. Used in:
+- `People/`: People.base · `Pets/`: Pets.base
+- `Restaurants/`: All Restaurants.base · `Shops/`: All Shops.base
+- `Ontology/`: Entries.base, Sources.base
 - `Travel/Japan26/`: Destinations, Experiences, Dining, Shopping comparison tables
 
 ## Web Search vs Defuddle

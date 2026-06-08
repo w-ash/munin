@@ -217,11 +217,13 @@ def patch_field(text: str, field: str, value: object) -> str:
         return insert_before_closing_fence(text, field, value)
     yaml_val = yaml_scalar(value)
     pat_val, pat_empty = _match_field_line(field)
-    replacement = rf'\1 {yaml_val}'
-    new_text = re.sub(pat_val, replacement, text, count=1, flags=re.MULTILINE)
+    # Function replacement, not a string: the value is inserted literally so a
+    # backslash sequence in it (\1, \d) can't be read as a backref/escape.
+    repl = lambda m: f'{m[1]} {yaml_val}'  # noqa: E731
+    new_text = re.sub(pat_val, repl, text, count=1, flags=re.MULTILINE)
     if new_text != text:
         return new_text
-    return re.sub(pat_empty, replacement, text, count=1, flags=re.MULTILINE)
+    return re.sub(pat_empty, repl, text, count=1, flags=re.MULTILINE)
 
 
 def insert_field_after(
@@ -237,8 +239,10 @@ def insert_field_after(
     yaml_val = yaml_scalar(value)
     escaped = re.escape(after_field)
     pat = rf'^({escaped}:.*)$'
-    replacement = rf'\1\n{new_field}: {yaml_val}'
-    return re.sub(pat, replacement, text, count=1, flags=re.MULTILINE)
+    # Function replacement so a backslash sequence in the anchor line or value
+    # is inserted literally rather than expanded (see :func:`patch_field`).
+    repl = lambda m: f'{m[1]}\n{new_field}: {yaml_val}'  # noqa: E731
+    return re.sub(pat, repl, text, count=1, flags=re.MULTILINE)
 
 
 def insert_before_closing_fence(text: str, field: str, value: object) -> str:

@@ -285,25 +285,19 @@ def is_malformed_maps_url(url: str) -> bool:
     return bool(url) and "cid=" not in url
 
 
-_NOMINATIM_REFUSAL_REASON = (
-    "No place match (Nominatim fallback — Google Places had no result). "
-    "The script can't confirm what establishment is at this address."
-)
-
-
-def validate_for_url(place: PlacesPlace | None) -> str | None:
+def validate_for_url(place: PlacesPlace) -> str | None:
     """Return None when it's safe to write ``place.googleMapsUri`` as the
     venue's URL, or a human-readable refusal reason. Refusal cases:
 
-    - ``place`` is None (Nominatim fallback — Google Places had no match)
     - ``place.businessStatus`` is ``CLOSED_PERMANENTLY`` / ``CLOSED_TEMPORARILY``
+    - Google matched but returned an empty ``googleMapsUri``
 
-    Surfaced to the user so they can delete the entry or refile with more
-    context — silently writing a URL for a closed venue was the complaint
-    that drove this whole pipeline change.
+    Surfaced to the user so they can delete the entry or refile — silently
+    writing a URL for a closed venue was the complaint that drove this
+    pipeline change. A Nominatim fallback is *not* a refusal: it geocoded
+    fine, just without a Google URL, and its low ``confidence``/``source``
+    already say so.
     """
-    if place is None:
-        return _NOMINATIM_REFUSAL_REASON
     name = place.displayName.text if place.displayName else ""
     address = place.formattedAddress
     if place.businessStatus == "CLOSED_PERMANENTLY":
@@ -316,6 +310,11 @@ def validate_for_url(place: PlacesPlace | None) -> str | None:
         return (
             f"Venue is temporarily closed per Google Places. Matched: '{name}' "
             f"at {address}. Confirm reopening or refile with more context."
+        )
+    if not place.googleMapsUri:
+        return (
+            f"Google matched '{name}' at {address} but returned no Maps URL. "
+            f"Set google_maps_url manually or refile with more context."
         )
     return None
 
@@ -421,7 +420,6 @@ def geocode_nominatim(query: str) -> GeoResult | None:
         "confidence": "low",
         "candidates": len(response.root),
         "source": "nominatim",
-        "url_validation_failed": _NOMINATIM_REFUSAL_REASON,
     }
 
 
@@ -822,31 +820,34 @@ def build_query(metadata: dict[str, object]) -> str:
     is anchored to the building, not to the establishment inside.
 
     Checks both ``destination`` (travel files) and ``city`` (restaurant files).
-    Wikilink-typed fields (``destination``, ``neighborhood``) are reduced to
-    their display value before composition — raw ``[[Tokyo]]`` in the query
-    string makes Places return zero results.
+    A precise ``address`` pins the spot well enough that ``neighborhood`` adds
+    only noise, so neighborhood is stacked in as context only when no usable
+    address is present. Wikilink-typed fields (``destination``, ``neighborhood``)
+    are reduced to their display value before composition — raw ``[[Tokyo]]`` in
+    the query string makes Places return zero results.
     """
     name = fm_str(metadata, "name") or fm_str(metadata, "name_jp")
+    neighborhood = strip_wikilink(fm_str(metadata, "neighborhood"))
     locality = strip_wikilink(fm_str(metadata, "destination")) or fm_str(metadata, "city")
     address = fm_str(metadata, "address")
+    precise_address = bool(address) and len(address) > ADDRESS_MIN_LEN
+
+    def stack(*candidates: str) -> str:
+        """Comma-join non-empty candidates, dropping any that a kept part
+        already contains (so 'Tokyo' isn't repeated after 'Tokyo Station')."""
+        kept: list[str] = []
+        for c in candidates:
+            if c and all(c.lower() not in k.lower() for k in kept):
+                kept.append(c)
+        return ", ".join(kept)
 
     if name:
-        parts: list[str] = [name]
-        if locality and locality.lower() not in name.lower():
-            parts.append(locality)
-        if address and len(address) > ADDRESS_MIN_LEN:
-            parts.append(address)
-        return ", ".join(parts)
-
-    parts = [address] if address else []
-    if locality and locality.lower() not in address.lower():
-        parts.append(locality)
-    if not parts:
-        for field_name in ("neighborhood", "destination", "city"):
-            val = fm_str(metadata, field_name)
-            if val:
-                parts.append(strip_wikilink(val))
-    return ", ".join(parts)
+        if precise_address:
+            return stack(name, locality, address)
+        return stack(name, neighborhood, locality)
+    if address:
+        return stack(address, locality)
+    return stack(neighborhood, locality)
 
 
 # --- Frontmatter I/O ---
@@ -908,11 +909,14 @@ def apply_geo_updates(text: str, updates: dict[str, object]) -> str:
         # coordinates prefers to land just before google_maps_url or address
         if field_name == "coordinates":
             placed = False
+            # Bind the scalar as a default arg so the value is inserted
+            # literally, never re-read as a backref (see patch_field).
+            coord_scalar = yaml_scalar(value)
             for anchor in ("google_maps_url", "address"):
                 if re.search(rf'^{re.escape(anchor)}:', text, re.MULTILINE):
                     text = re.sub(
                         rf'^({re.escape(anchor)}:)',
-                        f'coordinates: {yaml_scalar(value)}\n\\1',
+                        lambda m, v=coord_scalar: f'coordinates: {v}\n{m[1]}',
                         text, count=1, flags=re.MULTILINE,
                     )
                     placed = True
@@ -1215,9 +1219,14 @@ def _render_lookup_outcome(outcome: VenueOutcome, *, fallback_query: str) -> Non
     _print_ok_json(query, outcome.result)
 
 
+def _url_skip_reason(outcome: VenueOutcome) -> str:
+    """The URL-pipeline refusal reason for a venue, or '' when it emitted a URL."""
+    return (outcome.result or {}).get("url_validation_failed", "")
+
+
 def _render_url_skip(outcome: VenueOutcome) -> None:
     """Stderr warning when the URL pipeline refused to emit a google_maps_url."""
-    reason = (outcome.result or {}).get("url_validation_failed", "")
+    reason = _url_skip_reason(outcome)
     if not reason:
         return
     print(
@@ -1329,7 +1338,7 @@ def cmd_batch(args: _Args) -> None:
             print("SKIP (no new data)", file=sys.stderr)
             skipped += 1
 
-        url_skip_reason = (outcome.result or {}).get("url_validation_failed", "")
+        url_skip_reason = _url_skip_reason(outcome)
         if url_skip_reason:
             url_skips.append((f, url_skip_reason))
 

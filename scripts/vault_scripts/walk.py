@@ -69,19 +69,17 @@ def _write_walk_field(
     Returns a short status string.
     """
     text = path.read_text(encoding="utf-8")
+    # Drop any existing instance first so a re-run repositions cleanly instead
+    # of leaving duplicates (``\n?`` tolerates a field on the file's last line).
     stripped = re.sub(
-        rf"^{re.escape(field)}:[^\n]*\n",
-        "",
-        text,
-        count=1,
-        flags=re.MULTILINE,
+        rf"^{re.escape(field)}:[^\n]*\n?", "", text, count=1, flags=re.MULTILINE,
     )
-    if has_field(stripped, anchor):
+    if anchor != field and has_field(stripped, anchor):
         new_text = insert_field_after(stripped, anchor, field, minutes)
         op = f"after {anchor}"
     else:
         new_text = patch_field(stripped, field, minutes)
-        op = "appended"
+        op = "set"
     if new_text == text:
         return "no change"
     path.write_text(new_text, encoding="utf-8")

@@ -141,9 +141,10 @@ class GeoResult(_GeoResultBase, total=False):
     """Base fields always present; ``enrichment`` only when ``--enrich``,
     ``station`` only when ``--stations``. ``url_validation_failed`` is set
     when the URL pipeline refused to emit a ``google_maps_url`` — closed
-    venue per ``businessStatus`` or no Places match (Nominatim fallback) —
-    so callers can surface the issue to the user instead of silently
-    dropping the field.
+    venue per ``businessStatus``, or a Google match that returned no
+    ``googleMapsUri`` — so callers can surface the issue to the user instead
+    of silently dropping the field. (A Nominatim fallback geocodes fine
+    without a Google URL and is not flagged.)
     """
     enrichment: Enrichment
     station: StationInfo

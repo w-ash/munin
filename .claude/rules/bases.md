@@ -6,7 +6,7 @@ paths:
 
 # Bases
 
-Three traps that fail silently (no error, no warning, just no effect). Verify each before debugging anywhere else.
+Four traps that fail silently (no error, no warning, just no effect). Verify each before debugging anywhere else.
 
 ## 1. Marker fields are `markerColor` / `markerIcon`
 
@@ -38,6 +38,10 @@ The wrapper is required at **both** top-level and view-level `filters:` blocks â
 ## 3. Inline expressions in view fields are ignored â€” hoist to `formulas:`
 
 Putting `if(...)` directly in `markerColor:` or any other view field does nothing. Define once under `formulas:`, reference as `formula.<name>`.
+
+## 4. `this.file` in a filter is the *active* file, not the base
+
+A filter like `file.inFolder(this.file.folder)` ("show notes in my own folder") only works while the base is the open, focused file. `this.file` resolves to whatever file is currently active, so the same filter returns nothing when the base is embedded in a hub note (it sees the hub) or queried headlessly via `obsidian base:query` (it sees the last-open file). Prefer a tag filter (`file.hasTag("restaurant")`): it resolves the same everywhere and survives moving notes into an `entries/` subfolder. `file.inFolder("Notes")` matches the folder *and its subfolders*, so excluding templates needs an explicit `not: [file.inFolder("Templates")]`.
 
 ## Diagnostic recipe
 

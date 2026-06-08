@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One-pager</title>
+<!--
+  Print-safe one-page skeleton. Copy this file, then replace the content.
+  Restyle freely, and keep the rules below intact (see SKILL.md). Verify with
+  scripts/check_print.sh before finishing.
+-->
+<style>
+  /* Optional web fonts. Always keep a real fallback so offline printing holds. */
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&display=swap');
+
+  :root {
+    --ink:   #1a1a1a;   /* body text */
+    --paper: #ffffff;   /* sheet background (solid, no gradients) */
+    --panel: rgba(0,0,0,0.06);  /* shaded panel tint: zero-alpha of ink, never `transparent` */
+    --rule:  #2a2a2a;   /* hairlines and borders */
+    --accent:#8c2f24;   /* one accent color */
+  }
+
+  /* Page = US Letter with real margins on all four edges. @page supplies the printed border. */
+  @page { size: letter portrait; margin: 0.4in; }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: #fff;
+    color: var(--ink);
+    font-family: "Iowan Old Style", Georgia, "Times New Roman", serif;
+  }
+
+  /* The sheet is sized to the PRINTABLE area (Letter minus the 0.4in margins), not the full
+     page, and identical in screen and print. That is what guarantees one page: the sheet can
+     never be taller or wider than the page in either media. Keep content under ~9.8in tall.
+     No padding here - @page provides the printed margin; on screen the box-shadow stands in.
+     Body stays white in every media so a screen-view PDF export never paints a colored page. */
+  .sheet {
+    width: 7.6in;
+    min-height: 10.0in;
+    margin: 0 auto;
+    background: var(--paper);
+    position: relative;
+  }
+  @media screen {
+    .sheet { box-shadow: 0 8px 30px rgba(0,0,0,0.4); }   /* paint only, adds no height */
+  }
+
+  /* On-screen controls: hidden by default so they never land in ANY export (print or screen-view
+     PDF); revealed only for the on-screen browser view. */
+  .toolbar { display: none; position: fixed; top: 14px; right: 14px; z-index: 50; gap: 8px; }
+  .toolbar button {
+    font: 13px Georgia, serif; padding: 9px 16px;
+    border: 1px solid #000; background: #e0a92e; color: #111;
+    border-radius: 2px; cursor: pointer;
+  }
+  @media screen { .toolbar { display: flex; } }
+
+  /* ---- Building blocks (replace content; keep the patterns) ---- */
+
+  .masthead { text-align: center; border-bottom: 3px double var(--rule); padding-bottom: 8px; }
+  .masthead h1 {
+    font-family: "Playfair Display", Georgia, serif; font-weight: 900;
+    font-size: 44px; line-height: 1.02; margin: 0;
+  }
+  .masthead .tagline { font-style: italic; color: #555; margin: 4px 0 0; }
+
+  .headline {
+    font-family: "Playfair Display", Georgia, serif; font-weight: 900;
+    font-size: 28px; line-height: 1.05; text-align: center; margin: 12px 0 8px;
+  }
+
+  /* Two real columns via flexbox (column-count collapses to one in print). */
+  .body { display: flex; font-size: 11px; line-height: 1.4; text-align: justify; hyphens: auto; }
+  .body .col { flex: 1 1 0; min-width: 0; }
+  .body .col:first-child { padding-right: 0.17in; }
+  .body .col:last-child  { padding-left: 0.17in; border-left: 1px solid rgba(42,38,32,0.35); }
+  .body p { margin: 0 0 6px; }
+  /* Drop cap scoped to the first column only. */
+  .body .col:first-child p:first-of-type::first-letter {
+    font-family: "Playfair Display", Georgia, serif; font-weight: 900;
+    -webkit-initial-letter: 3; initial-letter: 3; margin-right: 8px; color: var(--accent);
+  }
+
+  /* Shaded panel: solid tint, no gradients, no blend modes. */
+  .panel {
+    margin: 12px 0; padding: 12px 16px;
+    border: 3px double var(--rule); background: var(--panel); text-align: center;
+  }
+  .panel .big {
+    font-family: "Playfair Display", Georgia, serif; font-weight: 900;
+    font-size: 40px; line-height: 1; margin: 2px 0;
+  }
+  .panel .big .accent { color: var(--accent); }
+
+  /* Image slot. Embed real images as base64 data: URIs (see SKILL.md / reference.md). */
+  .figure { text-align: center; margin: 12px 0; }
+  .figure img { max-width: 2in; border: 2px solid var(--rule); display: inline-block; }
+  .figure figcaption { font-size: 11px; color: #555; margin-top: 4px; }
+
+  .footer {
+    margin-top: 14px; border-top: 3px double var(--rule); padding-top: 8px;
+    display: flex; justify-content: space-between; font-size: 11px;
+  }
+
+  /* ---- Print rules. Geometry is the same in both media (above); print only keeps colors.
+         The on-screen controls are hidden by default, so they need no print rule. ---- */
+  @media print {
+    * {
+      -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+      mix-blend-mode: normal !important; background-blend-mode: normal !important;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">⎙ Print</button>
+    <button onclick="copyPNG(this)">⧉ Copy PNG</button>
+  </div>
+
+  <div class="sheet">
+
+    <header class="masthead">
+      <h1>Title goes here</h1>
+      <p class="tagline">A short tagline or dateline.</p>
+    </header>
+
+    <h2 class="headline">A clear, specific headline</h2>
+
+    <div class="body">
+      <div class="col">
+        <p>Lead paragraph. The drop cap lands on this first letter. Replace this body copy with the
+          real content. Keep the two columns balanced by splitting at a sentence boundary so the
+          gutter falls cleanly between the columns.</p>
+        <p>Second paragraph in the left column. Trim or extend to balance against the right column.</p>
+      </div>
+      <div class="col">
+        <p>Right column continues the reading flow. With two real columns the text does not reflow
+          into a single column when printed or exported to PDF.</p>
+        <p>Closing paragraph on the right. End on the point or the call to action.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <p class="big"><span class="accent">Headline number</span> or announcement</p>
+      <p>One supporting line inside the shaded panel.</p>
+    </div>
+
+    <figure class="figure">
+      <!-- Replace src with a base64 data: URI: <img src="data:image/jpeg;base64,..."> -->
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTUwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHg9IjEwMCIgeT0iODAiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjOTk5IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5pbWFnZTwvdGV4dD48L3N2Zz4=" alt="Placeholder">
+      <figcaption>Caption.</figcaption>
+    </figure>
+
+    <footer class="footer">
+      <span>Left footer note.</span>
+      <span>Right footer note.</span>
+    </footer>
+
+  </div>
+
+  <!-- Copy-as-PNG: renders .sheet via an SVG foreignObject to a 2x canvas, copies to the
+       clipboard, and falls back to downloading the PNG. Fully self-contained: embedded images keep
+       the canvas untainted, and any fonts embedded as base64 @font-face render exactly in the PNG
+       (offline included). This template uses system fonts (always exact); embed web fonts as base64
+       with scripts/embed_fonts.sh if you switch to them. Fonts via @import alone fall back here. -->
+  <script>
+    function pageToSVG(scale){
+      var sheet = document.querySelector('.sheet');
+      var w = Math.ceil(sheet.getBoundingClientRect().width);
+      var h = Math.ceil(sheet.scrollHeight);
+      var css = Array.prototype.map.call(document.querySelectorAll('style'), function(s){ return s.textContent; }).join('\n');
+      var clone = sheet.cloneNode(true);
+      clone.style.margin = '0'; clone.style.boxShadow = 'none';
+      var xml = new XMLSerializer().serializeToString(clone);
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + (w*scale) + '" height="' + (h*scale) + '" viewBox="0 0 ' + w + ' ' + h + '">'
+        + '<foreignObject x="0" y="0" width="' + w + '" height="' + h + '">'
+        + '<div xmlns="http://www.w3.org/1999/xhtml" style="background:#fff;width:' + w + 'px;height:' + h + 'px;">'
+        + '<style><![CDATA[' + css + ']]></style>' + xml
+        + '</div></foreignObject></svg>';
+      return { svg: svg, w: w*scale, h: h*scale };
+    }
+    async function renderPNG(scale){
+      var o = pageToSVG(scale);
+      var img = new Image();
+      await new Promise(function(res, rej){ img.onload = res; img.onerror = rej;
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(o.svg); });
+      var c = document.createElement('canvas'); c.width = o.w; c.height = o.h;
+      var ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, o.w, o.h);
+      ctx.drawImage(img, 0, 0, o.w, o.h);
+      return await new Promise(function(res){ c.toBlob(res, 'image/png'); });
+    }
+    async function copyPNG(btn){
+      var label = btn.textContent;
+      try {
+        if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
+        var blob = await renderPNG(2);
+        await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
+        btn.textContent = '✓ Copied';
+      } catch (e) {
+        try {
+          var blob2 = await renderPNG(2);
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob2);
+          a.download = (document.title || 'one-pager') + '.png';
+          a.click(); URL.revokeObjectURL(a.href);
+          btn.textContent = '✓ Downloaded';
+        } catch (e2) { btn.textContent = '✗ Failed'; console.error(e2); }
+      }
+      setTimeout(function(){ btn.textContent = label; }, 2000);
+    }
+  </script>
+</body>
+</html>

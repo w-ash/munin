@@ -43,4 +43,4 @@ address: ""
 
 - Status defaults to `want-to-try`; change to `been` after a visit.
 - Ask for rating and rec-for-friends after user describes experience.
-- After creating the file, geocode it: `scripts/vault-tool geocode lookup --file "Restaurants/<Name>.md" --write`
+- After creating the file, geocode it: `scripts/vault-tool geocode lookup --file "Restaurants/entries/<Name>.md" --write`

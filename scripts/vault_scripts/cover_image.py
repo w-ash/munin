@@ -24,7 +24,11 @@ import sys
 from PIL import Image
 from PIL.Image import Image as PILImage, Resampling
 
-from vault_scripts._retry import request_image_bytes, wikimedia_retry
+from vault_scripts._retry import (
+    TransientHTTPError,
+    request_image_bytes,
+    wikimedia_retry,
+)
 from vault_scripts._utils import (
     VAULT,
     add_inline_embed,
@@ -51,7 +55,17 @@ def download_image(url: str) -> PILImage:
         timeout=DOWNLOAD_TIMEOUT_S,
         headers={"User-Agent": user_agent()},
     )
-    return Image.open(BytesIO(data))
+    img = Image.open(BytesIO(data))
+    # Decode eagerly inside the retry scope. Image.open only parses the
+    # header, so a stream truncated mid-download would otherwise blow up
+    # later in process_image, outside @wikimedia_retry. A truncated body is
+    # transient (the next attempt usually completes); an unidentifiable
+    # format raised by Image.open above is permanent and propagates.
+    try:
+        img.load()
+    except OSError as e:
+        raise TransientHTTPError(f"truncated image: {e}") from e
+    return img
 
 
 def process_image(img: PILImage, *, max_width: int = MAX_WIDTH) -> PILImage:
