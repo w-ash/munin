@@ -15,7 +15,7 @@ Usage:
 
 Tiers:
     Default      → Essentials SKU (10k free/month): coordinates, address, maps URL
-    --enrich     → Enterprise SKU (1k free/month): + website, hours, rating, price
+    --enrich     → Pro SKU (5k free/month): + website, opening hours
     --stations   → Places Nearby (5k free/month) + Routes (10k free/month) —
                    fills nearest_station + walk_time_to_station. Fast, stable.
     --lines      → Overpass/OSM (free, ~1s throttle, flaky) — fills station_lines
@@ -84,9 +84,12 @@ from vault_scripts._utils import (
     yaml_scalar,
 )
 
-VENUE_TAGS: frozenset[str] = frozenset(
-    {"dining-option", "experience-option", "shopping-option", "accommodation-option"}
-)
+VENUE_TAGS: frozenset[str] = frozenset({
+    "dining-option",
+    "experience-option",
+    "shopping-option",
+    "accommodation-option",
+})
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 PLACES_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
@@ -130,9 +133,21 @@ _overpass_last_request: float = 0.0
 
 # Country code (from Google response) → language for address_local
 COUNTRY_LANG: dict[str, str] = {
-    "JP": "ja", "CN": "zh", "TW": "zh-TW", "KR": "ko", "TH": "th",
-    "IT": "it", "FR": "fr", "ES": "es", "DE": "de", "PT": "pt",
-    "GR": "el", "TR": "tr", "VN": "vi", "ID": "id", "MX": "es",
+    "JP": "ja",
+    "CN": "zh",
+    "TW": "zh-TW",
+    "KR": "ko",
+    "TH": "th",
+    "IT": "it",
+    "FR": "fr",
+    "ES": "es",
+    "DE": "de",
+    "PT": "pt",
+    "GR": "el",
+    "TR": "tr",
+    "VN": "vi",
+    "ID": "id",
+    "MX": "es",
 }
 
 
@@ -155,14 +170,19 @@ def has_non_latin_text(text: str) -> bool:
 
 # --- HTTP helpers ---
 
+
 @google_retry
 def _google_post[M: BaseModel](
-    url: str, body: dict[str, object], field_mask: str,
-    *, response_model: type[M],
+    url: str,
+    body: dict[str, object],
+    field_mask: str,
+    *,
+    response_model: type[M],
 ) -> M:
     """POST to a Google Maps Platform endpoint. Retries transient failures."""
     return request_validated_json(
-        "POST", url,
+        "POST",
+        url,
         response_model=response_model,
         json=body,
         headers={
@@ -176,14 +196,20 @@ def _google_post[M: BaseModel](
 
 @google_retry
 def _nominatim_get[M: BaseModel](
-    url: str, params: dict[str, str], headers: dict[str, str],
-    *, response_model: type[M],
+    url: str,
+    params: dict[str, str],
+    headers: dict[str, str],
+    *,
+    response_model: type[M],
 ) -> M:
     """GET Nominatim (OSM) with tenacity retries."""
     return request_validated_json(
-        "GET", url,
+        "GET",
+        url,
         response_model=response_model,
-        params=params, headers=headers, timeout=GOOGLE_TIMEOUT_S,
+        params=params,
+        headers=headers,
+        timeout=GOOGLE_TIMEOUT_S,
     )
 
 
@@ -193,13 +219,17 @@ def _is_json_response(resp: requests.Response) -> bool:
 
 @overpass_retry
 def _overpass_post[M: BaseModel](
-    url: str, query: str, *, response_model: type[M],
+    url: str,
+    query: str,
+    *,
+    response_model: type[M],
 ) -> M:
     """POST a single Overpass QL query with tenacity retries. HTML-in-200
     responses (OSM3S "server busy" pages) raise ``OverpassBusyError`` so
     the retry decorator backs off."""
     return request_validated_json(
-        "POST", url,
+        "POST",
+        url,
         response_model=response_model,
         data={"data": query},
         headers={"User-Agent": user_agent()},
@@ -225,23 +255,26 @@ FIELDS_ESSENTIALS = (
     "places.location,places.addressComponents,"
     "places.googleMapsUri,places.businessStatus,places.types"
 )
+# Only the fields the enrichment actually persists (website + hours/closed).
+# rating/userRatingCount/priceLevel/primaryType are billable Atmosphere-tier
+# fields that nothing writes, so requesting them just paid for discarded data.
 FIELDS_ENRICHED = (
-    FIELDS_ESSENTIALS + ","
-    "places.primaryType,places.websiteUri,places.regularOpeningHours,"
-    "places.rating,places.userRatingCount,places.priceLevel"
+    FIELDS_ESSENTIALS + ",places.websiteUri,places.regularOpeningHours"
 )
 
 
 def places_search(
-    query: str, *, lang: str = "en", enrich: bool = False,
+    query: str,
+    *,
+    lang: str = "en",
+    enrich: bool = False,
 ) -> tuple[PlacesPlace, int] | None:
     """Calls Places API (New) REST endpoint directly — the ``googlemaps``
     Python package only supports the legacy Places API which Google is
     deprecating. FieldMask is mandatory; omitting it returns an error.
 
     Default uses Essentials SKU only (10k free/month). ``enrich=True``
-    adds Pro+Enterprise fields (website, hours, rating) but drops the
-    free tier to 1k/month.
+    adds Pro-tier fields (website, opening hours) the enrichment persists.
 
     Returns (top hit, total candidate count) or None.
     """
@@ -330,18 +363,10 @@ def format_hours(descriptions: list[str]) -> tuple[str, str]:
 def _enrichment_from(place: PlacesPlace) -> Enrichment:
     hours, closed = format_hours(
         place.regularOpeningHours.weekdayDescriptions
-        if place.regularOpeningHours else []
+        if place.regularOpeningHours
+        else []
     )
-    return Enrichment(
-        website=place.websiteUri,
-        hours=hours,
-        closed=closed,
-        primary_type=place.primaryType,
-        business_status=place.businessStatus,
-        rating=place.rating,
-        rating_count=place.userRatingCount,
-        price_level=place.priceLevel,
-    )
+    return Enrichment(website=place.websiteUri, hours=hours, closed=closed)
 
 
 def geocode_google(query: str, options: GeocodeOptions) -> GeoResult | None:
@@ -457,6 +482,7 @@ def geocode(query: str, options: GeocodeOptions | None = None) -> GeoResult | No
 
 # --- Station lookup ---
 
+
 def find_nearest_station(lat: float, lng: float) -> Station | None:
     """Calls Places API (New) Nearby Search for the single closest transit
     station. Returns a :class:`Station` or None.
@@ -486,8 +512,7 @@ def find_nearest_station(lat: float, lng: float) -> Station | None:
                 },
             },
             field_mask=(
-                "places.displayName,places.location,"
-                "places.types,places.primaryType"
+                "places.displayName,places.location,places.types,places.primaryType"
             ),
             response_model=PlacesResponse,
         )
@@ -513,7 +538,10 @@ def find_nearest_station(lat: float, lng: float) -> Station | None:
 
 
 def walk_duration_minutes(
-    from_lat: float, from_lng: float, to_lat: float, to_lng: float,
+    from_lat: float,
+    from_lng: float,
+    to_lat: float,
+    to_lng: float,
 ) -> int | None:
     """Calls Routes API ``computeRoutes`` with travelMode=WALK.
 
@@ -525,8 +553,14 @@ def walk_duration_minutes(
         response = _google_post(
             ROUTES_URL,
             body={
-                "origin": {"location": {"latLng": {"latitude": from_lat, "longitude": from_lng}}},
-                "destination": {"location": {"latLng": {"latitude": to_lat, "longitude": to_lng}}},
+                "origin": {
+                    "location": {
+                        "latLng": {"latitude": from_lat, "longitude": from_lng}
+                    }
+                },
+                "destination": {
+                    "location": {"latLng": {"latitude": to_lat, "longitude": to_lng}}
+                },
                 "travelMode": "WALK",
                 "units": "METRIC",
             },
@@ -539,10 +573,13 @@ def walk_duration_minutes(
 
     if not response.routes:
         return None
-    m = re.match(r"(\d+)s$", response.routes[0].duration)
+    # Routes serializes duration as a protobuf Duration string, which may carry
+    # fractional seconds (e.g. "512.5s") — accept them so a valid route isn't
+    # silently dropped.
+    m = re.match(r"(\d+(?:\.\d+)?)s$", response.routes[0].duration)
     if not m:
         return None
-    seconds = int(m.group(1))
+    seconds = float(m.group(1))
     return max(1, math.ceil(seconds / 60))
 
 
@@ -572,7 +609,9 @@ def _overpass_query(query: str) -> list[dict[str, str]]:
 
 
 def fetch_station_lines(
-    lat: float, lng: float, anchor_name: str | None = None,
+    lat: float,
+    lng: float,
+    anchor_name: str | None = None,
 ) -> str | None:
     """Queries Overpass (OSM) for transit line/operator info at station coords.
 
@@ -613,7 +652,8 @@ def fetch_station_lines(
     if anchor_name:
         anchor_norm = _normalize_station_name(anchor_name)
         tags_list = [
-            t for t in tags_list
+            t
+            for t in tags_list
             if any(
                 _normalize_station_name(t.get(k, "")) == anchor_norm
                 for k in ("name:en", "name")
@@ -638,7 +678,9 @@ def fetch_station_lines(
             if not v or has_non_latin_text(v):
                 continue
             for raw in v.split(";"):
-                p = re.sub(r"\s+lines?\s*$", "", raw.strip(), flags=re.IGNORECASE).strip()
+                p = re.sub(
+                    r"\s+lines?\s*$", "", raw.strip(), flags=re.IGNORECASE
+                ).strip()
                 if p and p not in seen:
                     seen.add(p)
                     collected.append(p)
@@ -664,7 +706,8 @@ def _canonicalize_station_name(name: str) -> str:
         name = re.sub(r"\s*\([^)]*\)\s*$", "", name)
         name = re.sub(
             r"\s*[\u2018\u2019'\"][^\u2018\u2019'\"]+[\u2018\u2019'\"]\s*$",
-            "", name,
+            "",
+            name,
         )
         name = re.sub(r"\s+sta\.?$|\s+station$", "", name, flags=re.IGNORECASE)
         name = name.strip()
@@ -694,11 +737,11 @@ def _normalize_station_name(s: str) -> str:
     s = re.sub(r"\bsta\.?\b", "station", s, flags=re.IGNORECASE)
 
     stripped = "".join(
-        c for c in unicodedata.normalize("NFKD", s)
-        if not unicodedata.combining(c)
+        c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)
     )
     out = (
-        stripped.casefold()
+        stripped
+        .casefold()
         .replace("station", "")
         .replace("-", "")
         .replace(" ", "")
@@ -709,7 +752,9 @@ def _normalize_station_name(s: str) -> str:
     return re.sub(r"m(?=[mpb])", "n", out)
 
 
-def _geocode_station_by_name(name: str, near_lat: float, near_lng: float) -> tuple[float, float] | None:
+def _geocode_station_by_name(
+    name: str, near_lat: float, near_lng: float
+) -> tuple[float, float] | None:
     """Geocode a station by name. Returns (lat, lng) or None.
 
     Verifies the returned place's display name matches ``name`` (accent/
@@ -734,7 +779,10 @@ def _geocode_station_by_name(name: str, near_lat: float, near_lng: float) -> tup
         return None
 
     lat, lng = place.location.latitude, place.location.longitude
-    if abs(lat - near_lat) > STATION_NAME_MAX_DEG or abs(lng - near_lng) > STATION_NAME_MAX_DEG:
+    if (
+        abs(lat - near_lat) > STATION_NAME_MAX_DEG
+        or abs(lng - near_lng) > STATION_NAME_MAX_DEG
+    ):
         _STATION_BY_NAME_CACHE[key] = None
         return None
 
@@ -748,7 +796,9 @@ def _geocode_station_by_name(name: str, near_lat: float, near_lng: float) -> tup
 
 
 def get_station_info(
-    lat: float, lng: float, *,
+    lat: float,
+    lng: float,
+    *,
     anchor_name: str | None,
     fetch_walk: bool,
     fetch_lines: bool,
@@ -791,7 +841,8 @@ def get_station_info(
 
     walk = (
         walk_duration_minutes(lat, lng, station_lat, station_lng)
-        if fetch_walk else None
+        if fetch_walk
+        else None
     )
 
     lines: str | None = None
@@ -813,6 +864,7 @@ def get_station_info(
 
 # --- Query construction ---
 
+
 def build_query(metadata: dict[str, object]) -> str:
     """Prefers ``name`` + ``locality`` + ``address`` in that order, so the
     Places API returns the *business* result rather than the building or
@@ -828,7 +880,9 @@ def build_query(metadata: dict[str, object]) -> str:
     """
     name = fm_str(metadata, "name") or fm_str(metadata, "name_jp")
     neighborhood = strip_wikilink(fm_str(metadata, "neighborhood"))
-    locality = strip_wikilink(fm_str(metadata, "destination")) or fm_str(metadata, "city")
+    locality = strip_wikilink(fm_str(metadata, "destination")) or fm_str(
+        metadata, "city"
+    )
     address = fm_str(metadata, "address")
     precise_address = bool(address) and len(address) > ADDRESS_MIN_LEN
 
@@ -860,7 +914,13 @@ FIELD_ANCHORS: dict[str, list[str]] = {
     "address_local": ["address"],
     "nearest_station": ["neighborhood", "name_jp", "name"],
     "walk_time_to_station": ["nearest_station", "neighborhood", "name_jp", "name"],
-    "station_lines": ["walk_time_to_station", "nearest_station", "neighborhood", "name_jp", "name"],
+    "station_lines": [
+        "walk_time_to_station",
+        "nearest_station",
+        "neighborhood",
+        "name_jp",
+        "name",
+    ],
 }
 
 
@@ -874,9 +934,16 @@ def apply_geo_updates(text: str, updates: dict[str, object]) -> str:
     fields exist.
     """
     field_order = [
-        "coordinates", "google_maps_url", "address", "address_local",
-        "nearest_station", "walk_time_to_station", "station_lines",
-        "website", "hours", "closed",
+        "coordinates",
+        "google_maps_url",
+        "address",
+        "address_local",
+        "nearest_station",
+        "walk_time_to_station",
+        "station_lines",
+        "website",
+        "hours",
+        "closed",
     ]
 
     def _has_value(k: str, v: object) -> bool:
@@ -893,13 +960,13 @@ def apply_geo_updates(text: str, updates: dict[str, object]) -> str:
     ]
 
     for field_name, value in ordered:
-        if re.search(rf'^{re.escape(field_name)}:', text, re.MULTILINE):
+        if re.search(rf"^{re.escape(field_name)}:", text, re.MULTILINE):
             text = patch_field(text, field_name, value)
             continue
 
         anchored = False
         for anchor in FIELD_ANCHORS.get(field_name, ()):
-            if re.search(rf'^{re.escape(anchor)}:', text, re.MULTILINE):
+            if re.search(rf"^{re.escape(anchor)}:", text, re.MULTILINE):
                 text = insert_field_after(text, anchor, field_name, value)
                 anchored = True
                 break
@@ -913,11 +980,13 @@ def apply_geo_updates(text: str, updates: dict[str, object]) -> str:
             # literally, never re-read as a backref (see patch_field).
             coord_scalar = yaml_scalar(value)
             for anchor in ("google_maps_url", "address"):
-                if re.search(rf'^{re.escape(anchor)}:', text, re.MULTILINE):
+                if re.search(rf"^{re.escape(anchor)}:", text, re.MULTILINE):
                     text = re.sub(
-                        rf'^({re.escape(anchor)}:)',
-                        lambda m, v=coord_scalar: f'coordinates: {v}\n{m[1]}',
-                        text, count=1, flags=re.MULTILINE,
+                        rf"^({re.escape(anchor)}:)",
+                        lambda m, v=coord_scalar: f"coordinates: {v}\n{m[1]}",
+                        text,
+                        count=1,
+                        flags=re.MULTILINE,
                     )
                     placed = True
                     break
@@ -931,8 +1000,10 @@ def apply_geo_updates(text: str, updates: dict[str, object]) -> str:
 
 # --- Gap detection and update building ---
 
+
 def detect_gaps(
-    metadata: dict[str, object], *,
+    metadata: dict[str, object],
+    *,
     include_stations: bool = False,
     include_lines: bool = False,
     refresh_stations: bool = False,
@@ -1007,8 +1078,8 @@ def build_geo_updates(
     if gaps.get("address") == "non_latin":
         # Replacing a non-Latin address — prefer API's local-language
         # result over the old (possibly mixed-script) text.
-        updates["address_local"] = (
-            result.get("address_local") or fm_str(metadata, "address")
+        updates["address_local"] = result.get("address_local") or fm_str(
+            metadata, "address"
         )
     elif "address_local" in gaps and result.get("address_local"):
         updates["address_local"] = result["address_local"]
@@ -1092,8 +1163,11 @@ def process_venue(
     updates = build_geo_updates(post.metadata, result, gaps)
     if not updates:
         return VenueOutcome(
-            path=path, gaps=gaps, kind="no_new_data",
-            query=query, result=result,
+            path=path,
+            gaps=gaps,
+            kind="no_new_data",
+            query=query,
+            result=result,
         )
 
     written = False
@@ -1102,12 +1176,18 @@ def process_venue(
         written = True
 
     return VenueOutcome(
-        path=path, gaps=gaps, kind="updated",
-        query=query, result=result, updates=updates, written=written,
+        path=path,
+        gaps=gaps,
+        kind="updated",
+        query=query,
+        result=result,
+        updates=updates,
+        written=written,
     )
 
 
 # --- Subcommands ---
+
 
 class _Args(argparse.Namespace):
     command: str
@@ -1159,7 +1239,10 @@ def _lookup_file(args: _Args) -> None:
         refresh_urls=args.refresh_urls,
     )
     outcome = process_venue(
-        file_path, post, text, gaps,
+        file_path,
+        post,
+        text,
+        gaps,
         enrich=args.enrich,
         stations=args.stations,
         lines=args.lines,
@@ -1185,7 +1268,9 @@ def _lookup_raw_query(query: str, args: _Args) -> None:
     )
     result = geocode(query, opts)
     if result is None:
-        print(json.dumps({"status": "not_found", "query": query, "error": "No results"}))
+        print(
+            json.dumps({"status": "not_found", "query": query, "error": "No results"})
+        )
         return
     _print_ok_json(query, result)
 
@@ -1199,10 +1284,15 @@ def _render_lookup_outcome(outcome: VenueOutcome, *, fallback_query: str) -> Non
         print(json.dumps({"status": "no_gaps", "path": str(rel_path(outcome.path))}))
         return
     if outcome.kind == "not_found":
-        print(json.dumps({"status": "not_found", "query": query, "error": "No results"}))
+        print(
+            json.dumps({"status": "not_found", "query": query, "error": "No results"})
+        )
         return
     if outcome.kind == "no_new_data":
-        print("All requested fields already populated, nothing to update.", file=sys.stderr)
+        print(
+            "All requested fields already populated, nothing to update.",
+            file=sys.stderr,
+        )
     elif outcome.kind == "updated" and outcome.written:
         print(
             f"Updated {rel_path(outcome.path)}: {', '.join(outcome.updates.keys())}",
@@ -1220,7 +1310,14 @@ def _render_lookup_outcome(outcome: VenueOutcome, *, fallback_query: str) -> Non
 
 
 def _url_skip_reason(outcome: VenueOutcome) -> str:
-    """The URL-pipeline refusal reason for a venue, or '' when it emitted a URL."""
+    """The URL-pipeline refusal reason for a venue, or '' when it emitted a URL.
+
+    Suppressed when ``google_maps_url`` wasn't a gap: a closed-venue refusal is
+    raised on every geocode, but if the file already has a URL we never touched
+    it, so the "delete this entry" warning would be a false alarm.
+    """
+    if "google_maps_url" not in outcome.gaps:
+        return ""
     return (outcome.result or {}).get("url_validation_failed", "")
 
 
@@ -1241,10 +1338,15 @@ def cmd_batch(args: _Args) -> None:
     """Batch geocode travel venue files."""
     trip_dir = TRAVEL_DIR / args.trip
     if not trip_dir.exists():
-        available = sorted(
-            d.name for d in TRAVEL_DIR.iterdir()
-            if d.is_dir() and any((d / cat).exists() for cat in GEO_CATEGORIES)
-        ) if TRAVEL_DIR.exists() else []
+        available = (
+            sorted(
+                d.name
+                for d in TRAVEL_DIR.iterdir()
+                if d.is_dir() and any((d / cat).exists() for cat in GEO_CATEGORIES)
+            )
+            if TRAVEL_DIR.exists()
+            else []
+        )
         print(f"Error: Trip '{args.trip}' not found in Travel/", file=sys.stderr)
         if available:
             print(f"Available trips: {', '.join(available)}", file=sys.stderr)
@@ -1279,7 +1381,10 @@ def cmd_batch(args: _Args) -> None:
             for field_name in gaps:
                 gap_counts[field_name] = gap_counts.get(field_name, 0) + 1
 
-    print(f"\nScanned {len(venue_files)} venue files in Travel/{args.trip}/", file=sys.stderr)
+    print(
+        f"\nScanned {len(venue_files)} venue files in Travel/{args.trip}/",
+        file=sys.stderr,
+    )
     if not file_gaps:
         print("All geo fields are populated!", file=sys.stderr)
         return
@@ -1303,14 +1408,16 @@ def cmd_batch(args: _Args) -> None:
 
     for i, (f, post, text, gaps) in enumerate(file_gaps, 1):
         name = fm_str(post.metadata, "name") or f.stem
-        locality = (
-            fm_str(post.metadata, "destination")
-            or fm_str(post.metadata, "city")
+        locality = fm_str(post.metadata, "destination") or fm_str(post.metadata, "city")
+        print(
+            f"  [{i:3d}/{len(file_gaps)}] {name} ({locality}) ", end="", file=sys.stderr
         )
-        print(f"  [{i:3d}/{len(file_gaps)}] {name} ({locality}) ", end="", file=sys.stderr)
 
         outcome = process_venue(
-            f, post, text, gaps,
+            f,
+            post,
+            text,
+            gaps,
             enrich=args.enrich,
             stations=args.stations,
             lines=args.lines,
@@ -1345,7 +1452,10 @@ def cmd_batch(args: _Args) -> None:
     print(f"\nDone: {updated} updated, {skipped} skipped", file=sys.stderr)
 
     if url_skips:
-        print(f"\nURL skips ({len(url_skips)}) — files needing manual review:", file=sys.stderr)
+        print(
+            f"\nURL skips ({len(url_skips)}) — files needing manual review:",
+            file=sys.stderr,
+        )
         for path, reason in url_skips:
             print(f"  - {rel_path(path)}\n      {reason}", file=sys.stderr)
 
@@ -1364,25 +1474,83 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     lookup_parser = subparsers.add_parser("lookup", help="Geocode a single query")
-    _ = lookup_parser.add_argument("query", nargs="*", help="Search query (e.g. 'Den 傳 Tokyo')")
-    _ = lookup_parser.add_argument("--file", help="Read query from a venue file's frontmatter")
-    _ = lookup_parser.add_argument("--write", action="store_true", help="Write results back to the file (requires --file)")
-    _ = lookup_parser.add_argument("--enrich", action="store_true", help="Pull website, hours, rating (Enterprise SKU, 1k free/month)")
-    _ = lookup_parser.add_argument("--stations", action="store_true", help="Fill nearest_station + walk_time_to_station via Google (fast)")
-    _ = lookup_parser.add_argument("--lines", action="store_true", help="Fill station_lines via Overpass/OSM (slow, ~1s/call). Combine with --stations, or run alone when nearest_station is already set")
-    _ = lookup_parser.add_argument("--refresh-stations", action="store_true", help="Force-overwrite walk_time_to_station and station_lines even when already set (nearest_station is preserved as the anchor)")
-    _ = lookup_parser.add_argument("--refresh-urls", action="store_true", help="Re-classify any google_maps_url that isn't a CID URL (https://maps.google.com/?cid=...) as a gap, so it gets rewritten to the form Google's API returns.")
+    _ = lookup_parser.add_argument(
+        "query", nargs="*", help="Search query (e.g. 'Den 傳 Tokyo')"
+    )
+    _ = lookup_parser.add_argument(
+        "--file", help="Read query from a venue file's frontmatter"
+    )
+    _ = lookup_parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write results back to the file (requires --file)",
+    )
+    _ = lookup_parser.add_argument(
+        "--enrich",
+        action="store_true",
+        help="Pull website + opening hours (Pro SKU, 5k free/month)",
+    )
+    _ = lookup_parser.add_argument(
+        "--stations",
+        action="store_true",
+        help="Fill nearest_station + walk_time_to_station via Google (fast)",
+    )
+    _ = lookup_parser.add_argument(
+        "--lines",
+        action="store_true",
+        help="Fill station_lines via Overpass/OSM (slow, ~1s/call). Combine with --stations, or run alone when nearest_station is already set",
+    )
+    _ = lookup_parser.add_argument(
+        "--refresh-stations",
+        action="store_true",
+        help="Force-overwrite walk_time_to_station and station_lines even when already set (nearest_station is preserved as the anchor)",
+    )
+    _ = lookup_parser.add_argument(
+        "--refresh-urls",
+        action="store_true",
+        help="Re-classify any google_maps_url that isn't a CID URL (https://maps.google.com/?cid=...) as a gap, so it gets rewritten to the form Google's API returns.",
+    )
 
     batch_parser = subparsers.add_parser("batch", help="Batch geocode venue files")
-    _ = batch_parser.add_argument("trip", help="Trip folder name under Travel/ (e.g. Japan26)")
-    _ = batch_parser.add_argument("--write", action="store_true", help="Apply changes (default is dry-run)")
-    _ = batch_parser.add_argument("--enrich", action="store_true", help="Pull website, hours, rating (Enterprise SKU, 1k free/month)")
-    _ = batch_parser.add_argument("--stations", action="store_true", help="Fill nearest_station + walk_time_to_station via Google (fast)")
-    _ = batch_parser.add_argument("--lines", action="store_true", help="Fill station_lines via Overpass/OSM (slow, ~1s/call). Combine with --stations, or run alone when nearest_station is already set")
-    _ = batch_parser.add_argument("--refresh-stations", action="store_true", help="Force-overwrite walk_time_to_station and station_lines even when already set")
-    _ = batch_parser.add_argument("--refresh-urls", action="store_true", help="Re-classify any google_maps_url that isn't a CID URL (https://maps.google.com/?cid=...) as a gap, so it gets rewritten to the form Google's API returns.")
-    _ = batch_parser.add_argument("--only-missing", choices=list(GEO_FIELDS) + list(STATION_FIELDS), help="Only fill this specific field")
-    _ = batch_parser.add_argument("--dir", choices=sorted(GEO_CATEGORIES), help="Limit to one category directory")
+    _ = batch_parser.add_argument(
+        "trip", help="Trip folder name under Travel/ (e.g. Japan26)"
+    )
+    _ = batch_parser.add_argument(
+        "--write", action="store_true", help="Apply changes (default is dry-run)"
+    )
+    _ = batch_parser.add_argument(
+        "--enrich",
+        action="store_true",
+        help="Pull website + opening hours (Pro SKU, 5k free/month)",
+    )
+    _ = batch_parser.add_argument(
+        "--stations",
+        action="store_true",
+        help="Fill nearest_station + walk_time_to_station via Google (fast)",
+    )
+    _ = batch_parser.add_argument(
+        "--lines",
+        action="store_true",
+        help="Fill station_lines via Overpass/OSM (slow, ~1s/call). Combine with --stations, or run alone when nearest_station is already set",
+    )
+    _ = batch_parser.add_argument(
+        "--refresh-stations",
+        action="store_true",
+        help="Force-overwrite walk_time_to_station and station_lines even when already set",
+    )
+    _ = batch_parser.add_argument(
+        "--refresh-urls",
+        action="store_true",
+        help="Re-classify any google_maps_url that isn't a CID URL (https://maps.google.com/?cid=...) as a gap, so it gets rewritten to the form Google's API returns.",
+    )
+    _ = batch_parser.add_argument(
+        "--only-missing",
+        choices=list(GEO_FIELDS) + list(STATION_FIELDS),
+        help="Only fill this specific field",
+    )
+    _ = batch_parser.add_argument(
+        "--dir", choices=sorted(GEO_CATEGORIES), help="Limit to one category directory"
+    )
 
     args = parse_typed_args(parser, _Args)
     if args.command == "lookup":

@@ -8,8 +8,7 @@ from collections.abc import Iterable
 from os import PathLike
 from typing import IO
 
-__all__ = ["load", "loads", "dumps", "Post"]
-
+__all__ = ["Post", "dumps", "load", "loads"]
 
 class Post:
     metadata: dict[str, object]
@@ -27,15 +26,10 @@ class Post:
     def values(self) -> Iterable[object]: ...
     def to_dict(self) -> dict[str, object]: ...
 
-
 def load(
     fd: str | PathLike[str] | IO[str] | IO[bytes],
     encoding: str = ...,
     **defaults: object,
 ) -> Post: ...
-
-
 def loads(text: str, encoding: str = ..., **defaults: object) -> Post: ...
-
-
 def dumps(post: Post, **kwargs: object) -> str: ...

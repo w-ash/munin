@@ -30,8 +30,12 @@ from vault_scripts._utils import (
 )
 
 ALL_CATEGORIES: list[str] = [
-    "Dining", "Experiences", "Destinations", "Shopping",
-    "Accommodations", "Neighborhoods",
+    "Dining",
+    "Experiences",
+    "Destinations",
+    "Shopping",
+    "Accommodations",
+    "Neighborhoods",
 ]
 
 CATEGORY_TAGS: dict[str, str] = {
@@ -59,6 +63,7 @@ _FM_PARTS = 3
 
 
 # --- Checks ---
+
 
 def check_breadcrumb(text: str, trip_name: str, category: str) -> str | None:
     """Check for [[Trip]] · [[Category]] after frontmatter."""
@@ -130,7 +135,7 @@ def check_fm_dupes(text: str) -> str | None:
         return None
     keys: list[str] = []
     for line in parts[1].split("\n"):
-        m = re.match(r'^([a-z_][a-z_0-9]*):', line)
+        m = re.match(r"^([a-z_][a-z_0-9]*):", line)
         if m:
             keys.append(m.group(1))
     seen: set[str] = set()
@@ -149,6 +154,7 @@ def check_geo_fields(metadata: dict[str, object]) -> str | None:
 
 
 # --- Update operations ---
+
 
 def add_breadcrumb(text: str, trip_name: str, category: str) -> str:
     """Insert [[Trip]] · [[Category]] after frontmatter if not present."""
@@ -189,8 +195,14 @@ def add_summary(text: str, summary_text: str, trip_name: str, category: str) -> 
 # --- Audit mode ---
 
 CHECK_NAMES: tuple[str, ...] = (
-    "breadcrumb", "summary", "cover_fm", "cover_file",
-    "cover_embed", "cover_size", "fm_dupes", "geo_fields",
+    "breadcrumb",
+    "summary",
+    "cover_fm",
+    "cover_file",
+    "cover_embed",
+    "cover_size",
+    "fm_dupes",
+    "geo_fields",
 )
 
 
@@ -262,6 +274,7 @@ def run_audit(trip_name: str, categories: list[str]) -> None:
 
 # --- Update mode ---
 
+
 def run_update(trip_name: str, categories: list[str], *, write: bool) -> None:
     trip_dir = TRAVEL_DIR / trip_name
     valid_tags = {CATEGORY_TAGS[c] for c in categories}
@@ -299,6 +312,7 @@ def run_update(trip_name: str, categories: list[str], *, write: bool) -> None:
 
 # --- Extract summaries mode ---
 
+
 def _extract_body_snippet(text: str, max_chars: int = SNIPPET_MAX_CHARS) -> str:
     """Extract first ~2 sentences of prose from body, skipping structure."""
     parts = text.split("---", 2)
@@ -328,7 +342,7 @@ def _extract_body_snippet(text: str, max_chars: int = SNIPPET_MAX_CHARS) -> str:
     for end in (". ", "! ", "? "):
         idx = snippet.rfind(end)
         if idx > max_chars // 2:
-            snippet = snippet[:idx + 1]
+            snippet = snippet[: idx + 1]
             break
     return snippet
 
@@ -363,6 +377,7 @@ def run_extract_summaries(trip_name: str, categories: list[str]) -> None:
 
 # --- Apply summaries mode ---
 
+
 def _parse_summaries(path: Path) -> dict[str, str]:
     """Parse 'filename: summary text' format, one per line."""
     summaries: dict[str, str] = {}
@@ -370,15 +385,18 @@ def _parse_summaries(path: Path) -> dict[str, str]:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        m = re.match(r'^(.+\.md):\s*(.+)$', line)
+        m = re.match(r"^(.+\.md):\s*(.+)$", line)
         if m:
             summaries[m.group(1)] = m.group(2)
     return summaries
 
 
 def run_apply_summaries(
-    trip_name: str, categories: list[str],
-    summaries_path: Path, *, write: bool,
+    trip_name: str,
+    categories: list[str],
+    summaries_path: Path,
+    *,
+    write: bool,
 ) -> None:
     trip_dir = TRAVEL_DIR / trip_name
     valid_tags = {CATEGORY_TAGS[c] for c in categories}
@@ -429,6 +447,7 @@ def run_apply_summaries(
 
 # --- CLI ---
 
+
 class _Args(argparse.Namespace):
     trip: str
     dir: str | None
@@ -444,16 +463,32 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    _ = parser.add_argument("trip", help="Trip folder name under Travel/ (e.g. Japan26)")
-    _ = parser.add_argument("--dir", choices=ALL_CATEGORIES, help="Limit to one category")
-    _ = parser.add_argument("--update", action="store_true",
-                            help="Apply breadcrumbs and cover embeds (dry-run without --write)")
-    _ = parser.add_argument("--write", action="store_true",
-                            help="Write changes to disk (requires --update or --apply-summaries)")
-    _ = parser.add_argument("--extract-summaries", action="store_true",
-                            help="Output compact data for LLM summary generation")
-    _ = parser.add_argument("--apply-summaries", metavar="FILE",
-                            help="Inject summaries from a file into entries")
+    _ = parser.add_argument(
+        "trip", help="Trip folder name under Travel/ (e.g. Japan26)"
+    )
+    _ = parser.add_argument(
+        "--dir", choices=ALL_CATEGORIES, help="Limit to one category"
+    )
+    _ = parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Apply breadcrumbs and cover embeds (dry-run without --write)",
+    )
+    _ = parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write changes to disk (requires --update or --apply-summaries)",
+    )
+    _ = parser.add_argument(
+        "--extract-summaries",
+        action="store_true",
+        help="Output compact data for LLM summary generation",
+    )
+    _ = parser.add_argument(
+        "--apply-summaries",
+        metavar="FILE",
+        help="Inject summaries from a file into entries",
+    )
 
     args = parse_typed_args(parser, _Args)
 
@@ -467,7 +502,9 @@ def main() -> None:
     if args.extract_summaries:
         run_extract_summaries(args.trip, categories)
     elif args.apply_summaries:
-        run_apply_summaries(args.trip, categories, Path(args.apply_summaries), write=args.write)
+        run_apply_summaries(
+            args.trip, categories, Path(args.apply_summaries), write=args.write
+        )
     elif args.update:
         run_update(args.trip, categories, write=args.write)
     else:

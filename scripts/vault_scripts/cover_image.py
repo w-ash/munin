@@ -25,6 +25,7 @@ from PIL import Image
 from PIL.Image import Image as PILImage, Resampling
 
 from vault_scripts._retry import (
+    APIError,
     TransientHTTPError,
     request_image_bytes,
     wikimedia_retry,
@@ -91,14 +92,30 @@ class _Args(argparse.Namespace):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Add a cover image to a travel option file.")
-    _ = parser.add_argument("--file", required=True, help="Option file path (relative to vault root)")
+    parser = argparse.ArgumentParser(
+        description="Add a cover image to a travel option file."
+    )
+    _ = parser.add_argument(
+        "--file", required=True, help="Option file path (relative to vault root)"
+    )
     source = parser.add_mutually_exclusive_group(required=True)
     _ = source.add_argument("--url", help="URL to download the image from")
     _ = source.add_argument("--local", help="Path to a local image file")
-    _ = parser.add_argument("--write", action="store_true", help="Apply changes (default is dry-run)")
-    _ = parser.add_argument("--quality", type=int, default=QUALITY, help=f"WebP quality (default: {QUALITY})")
-    _ = parser.add_argument("--max-width", type=int, default=MAX_WIDTH, help=f"Max width in px (default: {MAX_WIDTH})")
+    _ = parser.add_argument(
+        "--write", action="store_true", help="Apply changes (default is dry-run)"
+    )
+    _ = parser.add_argument(
+        "--quality",
+        type=int,
+        default=QUALITY,
+        help=f"WebP quality (default: {QUALITY})",
+    )
+    _ = parser.add_argument(
+        "--max-width",
+        type=int,
+        default=MAX_WIDTH,
+        help=f"Max width in px (default: {MAX_WIDTH})",
+    )
 
     args = parse_typed_args(parser, _Args)
 
@@ -113,10 +130,16 @@ def main() -> None:
 
     if args.url:
         print(f"Downloading: {args.url}")
-        img = download_image(args.url)
+        try:
+            img = download_image(args.url)
+        except APIError as e:
+            print(f"Error: could not download {args.url}: {e}", file=sys.stderr)
+            sys.exit(1)
     else:
         assert args.local is not None  # mutually exclusive + required  # noqa: S101
-        local_path = Path(args.local) if Path(args.local).is_absolute() else VAULT / args.local
+        local_path = (
+            Path(args.local) if Path(args.local).is_absolute() else VAULT / args.local
+        )
         if not local_path.exists():
             print(f"Error: {args.local} not found", file=sys.stderr)
             sys.exit(1)

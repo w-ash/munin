@@ -8,6 +8,7 @@ dependencies = [
     "tenacity>=9.0",
     "pydantic>=2.10",
     "pillow>=11.0",
+    "pyjwt[crypto]>=2.10",
 ]
 
 [dependency-groups]
@@ -29,6 +30,9 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# package=false keeps the project root off sys.path for `python -m`; pytest
+# needs it explicitly so tests can import vault_scripts.
+pythonpath = ["."]
 python_files = ["test_*.py"]
 addopts = "--strict-markers --tb=short"
 
@@ -86,11 +90,14 @@ fixable = ["ALL"]
 "vault_scripts/_types.py" = ["N815"]
 "tests/**/*.py" = [
     "S101",     # allow assert
+    "S105",     # tests construct fake tokens/secrets as fixtures
+    "S106",     # same — fake credential kwargs in model fixtures
     "ARG001",
     "ARG002",
     "PLR2004",
     "PLR6301",
     "PLC1901",
+    "PLC2701",  # tests import the private modules they exercise
     "PT011",
     "ERA001",
 ]

@@ -8,6 +8,8 @@ paths:
 
 Package at `scripts/vault_scripts/`. Invoke via `scripts/vault-tool <module> [args]` (bash dispatcher; passes `.env` through `uv run --env-file`). Private modules (`_`-prefixed) are auto-filtered from the dispatcher's module list.
 
+The `sheets` module (Google Sheets read/write) has a user-facing skill: see `.claude/skills/google-sheets/` for its command surface, service-account access, and dry-run-before-write workflow.
+
 ## Layout
 
 ```

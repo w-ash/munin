@@ -2,7 +2,8 @@
 
 Exception taxonomy:
 
-- ``TransientHTTPError`` — status 429/502/503/504 from any API; retryable.
+- ``TransientHTTPError`` — status 429 or any 5xx from any API; retryable.
+  Carries the server's Retry-After (seconds) when present, honored by the wait.
 - ``OverpassBusyError`` — Overpass returned HTML (server overloaded); retryable.
 - ``OverpassUnavailableError`` — every Overpass mirror exhausted retries;
   raised by the caller's outer mirror-fallback loop so downstream code can
@@ -26,22 +27,39 @@ in one call — parses from ``resp.content`` via ``model_validate_json`` so
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 from pydantic import BaseModel, ValidationError
 import requests
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
     wait_random_exponential,
 )
+from tenacity.wait import wait_base
 
-_TRANSIENT_STATUS = frozenset({429, 502, 503, 504})
+# 429 + any 5xx are transient — matches the official google-api-python-client
+# (`_should_retry_response`), which retries all 5xx rather than a fixed subset.
+_TOO_MANY_REQUESTS = 429
+_SERVER_ERROR = 500
+# Cap a server-provided Retry-After so a huge/hostile value can't hang a call.
+_MAX_RETRY_AFTER_S = 60
 
 
 class TransientHTTPError(Exception):
-    """HTTP status in the transient set (429/5xx) — retry."""
+    """HTTP status in the transient set (429 or any 5xx) — retry.
+
+    ``retry_after`` carries the server's Retry-After delay in seconds when the
+    response provided one, so the wait strategy can honor it over plain backoff.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after: float | None = retry_after
 
 
 class OverpassBusyError(Exception):
@@ -79,12 +97,40 @@ _RETRYABLE: tuple[type[BaseException], ...] = (
     OverpassBusyError,
     requests.ConnectionError,
     requests.Timeout,
+    # Body truncated/garbled mid-transfer — a transient transport failure, not a
+    # hard 4xx. Both subclass RequestException directly (not ConnectionError), so
+    # they'd otherwise be dropped from the retry set.
+    requests.exceptions.ChunkedEncodingError,
+    requests.exceptions.ContentDecodingError,
 )
 
 
+class WaitRetryAfter(wait_base):
+    """Honor a server Retry-After when the last failure carried one (capped at
+    :data:`_MAX_RETRY_AFTER_S`); otherwise defer to the wrapped backoff strategy.
+
+    Keeps the Retry-After timing inside tenacity rather than a hand-rolled sleep,
+    so all the usual machinery (attempt cap, reraise, jittered fallback) still
+    applies. Wrapped around each decorator's existing wait, so it only changes
+    behavior when a response actually provided the header.
+    """
+
+    def __init__(self, fallback: wait_base) -> None:
+        self._fallback = fallback
+
+    def __call__(self, retry_state: RetryCallState) -> float:
+        outcome = retry_state.outcome
+        exc = outcome.exception() if outcome is not None else None
+        if isinstance(exc, TransientHTTPError) and exc.retry_after is not None:
+            return min(exc.retry_after, float(_MAX_RETRY_AFTER_S))
+        return self._fallback(retry_state)
+
+
+# Five attempts at up to 30s of jittered backoff lets a call ride out a 60s
+# quota window (Sheets quotas reset each minute) instead of failing fast.
 google_retry = retry(
-    stop=stop_after_attempt(3),
-    wait=wait_random_exponential(multiplier=1, max=8),
+    stop=stop_after_attempt(5),
+    wait=WaitRetryAfter(wait_random_exponential(multiplier=1, max=30)),
     retry=retry_if_exception_type(_RETRYABLE),
     reraise=True,
 )
@@ -92,7 +138,7 @@ google_retry = retry(
 
 overpass_retry = retry(
     stop=stop_after_attempt(2),
-    wait=wait_exponential(multiplier=1.1, min=1, max=8),
+    wait=WaitRetryAfter(wait_exponential(multiplier=1.1, min=1, max=8)),
     retry=retry_if_exception_type(_RETRYABLE),
     reraise=True,
 )
@@ -105,18 +151,41 @@ overpass_retry = retry(
 # up to 4x per-attempt request timeout in worst case.
 wikimedia_retry = retry(
     stop=stop_after_attempt(4),
-    wait=wait_random_exponential(multiplier=1.5, max=16),
+    wait=WaitRetryAfter(wait_random_exponential(multiplier=1.5, max=16)),
     retry=retry_if_exception_type(_RETRYABLE),
     reraise=True,
 )
 
 
+def _parse_retry_after(resp: requests.Response) -> float | None:
+    """Parse a ``Retry-After`` header (RFC 7231): integer seconds or an HTTP-date.
+    Returns the delay in seconds (never negative), or None when absent/unparseable.
+    Google's Sheets quota errors rarely set it, but honoring it when present is the
+    correct, server-directed backoff."""
+    raw = resp.headers.get("Retry-After")
+    if not raw:
+        return None
+    raw = raw.strip()
+    if raw.isdigit():
+        return float(raw)
+    try:
+        when = parsedate_to_datetime(raw)
+    except TypeError, ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max((when - datetime.now(tz=UTC)).total_seconds(), 0.0)
+
+
 def _classify_transient(resp: requests.Response) -> None:
-    """Raise :class:`TransientHTTPError` on 429/5xx, otherwise raise on
-    other 4xx/5xx via ``raise_for_status``. Shared between request helpers
-    so the transient-vs-permanent split stays consistent."""
-    if resp.status_code in _TRANSIENT_STATUS:
-        raise TransientHTTPError(f"HTTP {resp.status_code}")
+    """Raise :class:`TransientHTTPError` on 429 or any 5xx, otherwise raise on
+    other 4xx via ``raise_for_status``. Shared between request helpers so the
+    transient-vs-permanent split stays consistent. A server-provided Retry-After
+    is attached so the wait strategy can honor it."""
+    if resp.status_code == _TOO_MANY_REQUESTS or resp.status_code >= _SERVER_ERROR:
+        raise TransientHTTPError(
+            f"HTTP {resp.status_code}", retry_after=_parse_retry_after(resp)
+        )
     resp.raise_for_status()
 
 
@@ -128,7 +197,7 @@ def request_validated_json[M: BaseModel](
     timeout: int,
     headers: dict[str, str] | None = None,
     json: object | None = None,
-    data: dict[str, str] | None = None,
+    data: dict[str, str] | bytes | None = None,
     params: dict[str, str] | None = None,
     ok: Callable[[requests.Response], bool] | None = None,
 ) -> M:
@@ -139,7 +208,8 @@ def request_validated_json[M: BaseModel](
     with a tenacity decorator. ``ok`` is an optional predicate run on a
     2xx response; if it returns False the call raises
     :class:`OverpassBusyError`. Used by Overpass to treat HTML-in-200
-    responses as retryable busy signals.
+    responses as retryable busy signals. ``data`` accepts raw ``bytes`` (with a
+    caller-set Content-Type header) for the Drive multipart Markdown upload.
 
     Malformed JSON raises ``ValidationError`` (already in :data:`APIError`).
     """

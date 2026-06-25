@@ -14,7 +14,7 @@ from pathlib import Path
 import sqlite3
 from typing import TypedDict, cast
 
-from vault_scripts._utils import VAULT, parse_typed_args, patch_field
+from vault_scripts._utils import VAULT, has_field, parse_typed_args, patch_field
 
 PEOPLE_DIR = VAULT / "People"
 PEOPLE_ENTRIES = PEOPLE_DIR / "entries"
@@ -74,7 +74,9 @@ def query_contacts(db_path: Path) -> list[Contact]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        rows = cast(list[sqlite3.Row], conn.execute("""
+        rows = cast(
+            list[sqlite3.Row],
+            conn.execute("""
             SELECT r.ZFIRSTNAME AS first, r.ZLASTNAME AS last, r.ZNICKNAME AS nickname,
                    r.ZORGANIZATION AS org, r.ZJOBTITLE AS job_title,
                    r.ZBIRTHDAY AS birthday_ts,
@@ -83,7 +85,8 @@ def query_contacts(db_path: Path) -> list[Contact]:
             LEFT JOIN ZABCDPOSTALADDRESS a ON a.ZOWNER = r.Z_PK
             WHERE r.ZBIRTHDAY IS NOT NULL AND r.ZFIRSTNAME IS NOT NULL
             ORDER BY r.ZFIRSTNAME, r.ZLASTNAME
-        """).fetchall())
+        """).fetchall(),
+        )
     finally:
         conn.close()
 
@@ -96,16 +99,18 @@ def query_contacts(db_path: Path) -> list[Contact]:
         if key in seen:
             continue
         seen.add(key)
-        contacts.append(Contact(
-            first=first,
-            last=last,
-            nickname=_s(row, "nickname"),
-            org=_s(row, "org"),
-            job_title=_s(row, "job_title"),
-            birthday=convert_birthday(_f(row, "birthday_ts")),
-            city=_s(row, "city"),
-            state=_s(row, "state"),
-        ))
+        contacts.append(
+            Contact(
+                first=first,
+                last=last,
+                nickname=_s(row, "nickname"),
+                org=_s(row, "org"),
+                job_title=_s(row, "job_title"),
+                birthday=convert_birthday(_f(row, "birthday_ts")),
+                city=_s(row, "city"),
+                state=_s(row, "state"),
+            )
+        )
     return contacts
 
 
@@ -179,8 +184,14 @@ class _Args(argparse.Namespace):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync Apple Contacts → People/ notes")
-    _ = parser.add_argument("--write", action="store_true", help="Actually write files (default is dry-run)")
-    _ = parser.add_argument("--enrich", action="store_true", help="Update existing notes with missing birthdays")
+    _ = parser.add_argument(
+        "--write", action="store_true", help="Actually write files (default is dry-run)"
+    )
+    _ = parser.add_argument(
+        "--enrich",
+        action="store_true",
+        help="Update existing notes with missing birthdays",
+    )
     args = parse_typed_args(parser, _Args)
 
     db_path = find_contacts_db()
@@ -188,7 +199,8 @@ def main() -> None:
     existing = existing_people(PEOPLE_DIR)
 
     new_contacts = [
-        c for c in contacts
+        c
+        for c in contacts
         if f"{c['first']} {c['last']}".strip().lower() not in existing
     ]
     first_name_counts: dict[str, int] = {}
@@ -241,6 +253,10 @@ def main() -> None:
         print("\n🔄 Enriching existing notes with missing birthdays...")
         for contact, path in to_enrich:
             text = path.read_text()
+            # Only fill a missing birthday — never overwrite a hand-entered one
+            # (Contacts may hold a less precise year-unknown value).
+            if has_field(text, "birthday"):
+                continue
             new_text = patch_field(text, "birthday", contact["birthday"])
             if new_text != text:
                 if args.write:

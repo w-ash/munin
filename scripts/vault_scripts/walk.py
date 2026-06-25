@@ -29,6 +29,7 @@ Examples:
     # Pure coordinates → free-text
     scripts/vault-tool walk "35.0045, 135.7688" "Goodman Roaster Kyoto"
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,7 +58,10 @@ ROUTES_MAX_WORKERS = 10
 
 
 def _write_walk_field(
-    path: Path, field: str, minutes: int, anchor: str,
+    path: Path,
+    field: str,
+    minutes: int,
+    anchor: str,
 ) -> str:
     """Upsert ``field: <minutes>`` into ``path``'s frontmatter, positioning
     it right after ``anchor`` whenever the anchor exists.
@@ -72,7 +76,11 @@ def _write_walk_field(
     # Drop any existing instance first so a re-run repositions cleanly instead
     # of leaving duplicates (``\n?`` tolerates a field on the file's last line).
     stripped = re.sub(
-        rf"^{re.escape(field)}:[^\n]*\n?", "", text, count=1, flags=re.MULTILINE,
+        rf"^{re.escape(field)}:[^\n]*\n?",
+        "",
+        text,
+        count=1,
+        flags=re.MULTILINE,
     )
     if anchor != field and has_field(stripped, anchor):
         new_text = insert_field_after(stripped, anchor, field, minutes)
@@ -227,7 +235,10 @@ def main() -> None:
         if args.write_field is not None and mins is not None and dest.path is not None:
             try:
                 op = _write_walk_field(
-                    dest.path, args.write_field, mins, args.anchor_after,
+                    dest.path,
+                    args.write_field,
+                    mins,
+                    args.anchor_after,
                 )
             except OSError as e:
                 write_note = f" (write-failed: {e})"

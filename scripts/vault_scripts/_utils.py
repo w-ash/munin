@@ -8,6 +8,7 @@ the package's entry-point scripts. Env loading is handled upstream by
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import functools
 import json
 import os
@@ -24,8 +25,8 @@ import yaml
 # Keep __pycache__ out of the iCloud-synced vault tree
 sys.pycache_prefix = str(Path.home() / ".cache" / "pycache")
 
-_PACKAGE_DIR = Path(__file__).resolve().parent   # scripts/vault_scripts/
-_SCRIPTS_DIR = _PACKAGE_DIR.parent               # scripts/
+_PACKAGE_DIR = Path(__file__).resolve().parent  # scripts/vault_scripts/
+_SCRIPTS_DIR = _PACKAGE_DIR.parent  # scripts/
 
 # When the scripts/ directory is symlinked into a separate vault (common
 # now that this package lives in its own git repo), Path.resolve above
@@ -41,9 +42,12 @@ TRAVEL_DIR = VAULT / "Travel"
 _FM_PARTS_EXPECTED = 3
 
 # Categories with geocodable venues (not areas like Destinations/Neighborhoods)
-GEO_CATEGORIES: frozenset[str] = frozenset(
-    {"Dining", "Experiences", "Shopping", "Accommodations"}
-)
+GEO_CATEGORIES: frozenset[str] = frozenset({
+    "Dining",
+    "Experiences",
+    "Shopping",
+    "Accommodations",
+})
 GEO_FIELDS: tuple[str, ...] = (
     "coordinates",
     "google_maps_url",
@@ -54,8 +58,10 @@ GEO_FIELDS: tuple[str, ...] = (
 
 # --- Env helpers ---
 
+
 def parse_typed_args[T: argparse.Namespace](
-    parser: argparse.ArgumentParser, cls: type[T],
+    parser: argparse.ArgumentParser,
+    cls: type[T],
 ) -> T:
     """Parse CLI args into a typed ``argparse.Namespace`` subclass.
 
@@ -154,6 +160,7 @@ def rewrite_wikimedia_to_thumb(url: str, width: int = WIKIMEDIA_THUMB_WIDTH) -> 
 
 # --- Frontmatter helpers ---
 
+
 def fm_str(metadata: dict[str, object], field: str) -> str:
     """Strips YAML quoting artifacts — frontmatter values sometimes retain
     surrounding double-quotes after parsing depending on the quoting style.
@@ -183,19 +190,47 @@ def strip_wikilink(value: str) -> str:
 def _match_field_line(field: str) -> tuple[str, str]:
     """Return (pattern_with_value, pattern_empty) regexes for a frontmatter field."""
     escaped = re.escape(field)
-    return rf'^({escaped}:) .*$', rf'^({escaped}:)\s*$'
+    return rf"^({escaped}:) .*$", rf"^({escaped}:)\s*$"
+
+
+def _frontmatter_body(text: str) -> str | None:
+    """Return the YAML between the opening and closing ``---`` fences, or None
+    when ``text`` has no frontmatter block. Field scans/edits run on this region
+    only — a ``key:`` line in the note body must never be mistaken for a field."""
+    if not text.startswith("---"):
+        return None
+    parts = text.split("---", 2)
+    if len(parts) < _FM_PARTS_EXPECTED:
+        return None
+    return parts[1]
+
+
+def _edit_frontmatter(text: str, transform: Callable[[str], str]) -> str:
+    """Apply ``transform`` to the frontmatter body only and rebuild the document.
+    Returns ``text`` unchanged when there's no frontmatter block."""
+    if not text.startswith("---"):
+        return text
+    parts = text.split("---", 2)
+    if len(parts) < _FM_PARTS_EXPECTED:
+        return text
+    before, body, after = parts
+    return f"{before}---{transform(body)}---{after}"
 
 
 def has_field(text: str, field: str) -> bool:
-    """Whether a frontmatter field key is present at the start of any line."""
-    return re.search(rf'^{re.escape(field)}:', text, flags=re.MULTILINE) is not None
+    """Whether a frontmatter field key is present — scoped to the YAML block, so
+    a matching ``key:`` line in the note body is ignored."""
+    body = _frontmatter_body(text)
+    if body is None:
+        return False
+    return re.search(rf"^{re.escape(field)}:", body, flags=re.MULTILINE) is not None
 
 
 def yaml_scalar(value: object) -> str:
     """Format a Python value as a YAML scalar line fragment.
 
     Bools and ints emit unquoted; strings get double-quoted with embedded
-    quotes escaped. Empty strings and None emit as ``""``.
+    backslashes and quotes escaped. Empty strings and None emit as ``""``.
     """
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -203,7 +238,11 @@ def yaml_scalar(value: object) -> str:
         return str(value)
     if not value:
         return '""'
-    return f'"{str(value).replace(chr(34), chr(92) + chr(34))}"'
+    # Escape backslashes before quotes so a value like ``C:\temp`` or a trailing
+    # ``\`` survives the YAML double-quoted scalar round-trip (``\t`` would
+    # otherwise read back as a TAB, and a trailing ``\`` would escape the quote).
+    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def patch_field(text: str, field: str, value: object) -> str:
@@ -219,15 +258,25 @@ def patch_field(text: str, field: str, value: object) -> str:
     pat_val, pat_empty = _match_field_line(field)
     # Function replacement, not a string: the value is inserted literally so a
     # backslash sequence in it (\1, \d) can't be read as a backref/escape.
-    repl = lambda m: f'{m[1]} {yaml_val}'  # noqa: E731
-    new_text = re.sub(pat_val, repl, text, count=1, flags=re.MULTILINE)
-    if new_text != text:
-        return new_text
-    return re.sub(pat_empty, repl, text, count=1, flags=re.MULTILINE)
+
+    def repl(m: re.Match[str]) -> str:
+        return f"{m[1]} {yaml_val}"
+
+    def transform(body: str) -> str:
+        new_body = re.sub(pat_val, repl, body, count=1, flags=re.MULTILINE)
+        if new_body != body:
+            return new_body
+        return re.sub(pat_empty, repl, body, count=1, flags=re.MULTILINE)
+
+    # has_field is True, so a frontmatter block exists; edit only that region.
+    return _edit_frontmatter(text, transform)
 
 
 def insert_field_after(
-    text: str, after_field: str, new_field: str, value: object,
+    text: str,
+    after_field: str,
+    new_field: str,
+    value: object,
 ) -> str:
     """Insert a new frontmatter field after an existing one.
 
@@ -238,11 +287,17 @@ def insert_field_after(
     """
     yaml_val = yaml_scalar(value)
     escaped = re.escape(after_field)
-    pat = rf'^({escaped}:.*)$'
+    pat = rf"^({escaped}:.*)$"
     # Function replacement so a backslash sequence in the anchor line or value
     # is inserted literally rather than expanded (see :func:`patch_field`).
-    repl = lambda m: f'{m[1]}\n{new_field}: {yaml_val}'  # noqa: E731
-    return re.sub(pat, repl, text, count=1, flags=re.MULTILINE)
+
+    def repl(m: re.Match[str]) -> str:
+        return f"{m[1]}\n{new_field}: {yaml_val}"
+
+    def transform(body: str) -> str:
+        return re.sub(pat, repl, body, count=1, flags=re.MULTILINE)
+
+    return _edit_frontmatter(text, transform)
 
 
 def insert_before_closing_fence(text: str, field: str, value: object) -> str:
@@ -256,6 +311,7 @@ def insert_before_closing_fence(text: str, field: str, value: object) -> str:
 
 # --- Body helpers ---
 
+
 def add_inline_embed(text: str, image_filename: str) -> str:
     """Add or update ![[image|600]] after the [!summary] callout.
 
@@ -265,11 +321,11 @@ def add_inline_embed(text: str, image_filename: str) -> str:
     """
     embed = f"![[{image_filename}|600]]"
 
-    existing = re.search(r'^!\[\[.*\.webp\|600\]\]$', text, flags=re.MULTILINE)
+    existing = re.search(r"^!\[\[.*\.webp\|600\]\]$", text, flags=re.MULTILINE)
     if existing:
         if existing.group() == embed:
             return text
-        return text[:existing.start()] + embed + text[existing.end():]
+        return text[: existing.start()] + embed + text[existing.end() :]
 
     lines = text.split("\n")
     in_frontmatter = False
@@ -314,6 +370,7 @@ def add_inline_embed(text: str, image_filename: str) -> str:
 
 # --- File discovery ---
 
+
 def find_images_dir(file_path: Path) -> Path:
     """Walk up from the file to find the trip root, return its images/ dir."""
     rel = file_path.relative_to(TRAVEL_DIR)
@@ -356,7 +413,7 @@ def find_entry_files(
             try:
                 text = f.read_text(encoding="utf-8")
                 post = frontmatter.loads(text)
-            except (yaml.YAMLError, OSError):
+            except yaml.YAMLError, OSError:
                 continue
             if any(t in valid_tags for t in _tags_of(post)):
                 files.append((f, post, category, text))
@@ -364,6 +421,7 @@ def find_entry_files(
 
 
 # --- Display ---
+
 
 def rel_path(p: Path) -> Path:
     """Vault-relative path for display. Falls back to absolute if outside vault."""
