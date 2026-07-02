@@ -102,10 +102,10 @@ def test_delete_range_request():
 
 
 def test_replace_all_text_request_match_case():
-    assert _docs.replace_all_text_request("{{n}}", "Ash", match_case=True) == {
+    assert _docs.replace_all_text_request("{{n}}", "Jordan", match_case=True) == {
         "replaceAllText": {
             "containsText": {"text": "{{n}}", "matchCase": True},
-            "replaceText": "Ash",
+            "replaceText": "Jordan",
         }
     }
 
@@ -372,7 +372,7 @@ def test_replace_all_dry_run_no_write(monkeypatch, capsys):
     calls = _record_batch(monkeypatch)
     docs.cmd_replace_all(
         _args(
-            "replace-all", find="{{n}}", replace="Ash", match_case=False, write=False
+            "replace-all", find="{{n}}", replace="Jordan", match_case=False, write=False
         ),
         "d1",
     )
@@ -395,7 +395,7 @@ def test_replace_all_write_reports_count(monkeypatch, capsys):
 
     monkeypatch.setattr(_docs, "batch_update", fake_batch)
     docs.cmd_replace_all(
-        _args("replace-all", find="{{n}}", replace="Ash", match_case=False, write=True),
+        _args("replace-all", find="{{n}}", replace="Jordan", match_case=False, write=True),
         "d1",
     )
     assert '"occurrencesChanged": 3' in capsys.readouterr().out
@@ -569,8 +569,8 @@ def test_import_markdown_uploads_multipart(monkeypatch):
 
 
 def test_parse_replacements_valid():
-    assert docs._parse_replacements(["{{n}}=Ash", "{{c}}=City"]) == {
-        "{{n}}": "Ash",
+    assert docs._parse_replacements(["{{n}}=Jordan", "{{c}}=City"]) == {
+        "{{n}}": "Jordan",
         "{{c}}": "City",
     }
 
@@ -653,7 +653,7 @@ def test_cmd_template_write_copies_and_replaces(monkeypatch, capsys):
         auth="oauth",
         template_id="tmpl",
         title="Filled",
-        replacements=["{{n}}=Ash"],
+        replacements=["{{n}}=Jordan"],
         write=True,
     )
     docs.cmd_template(args, "")
@@ -662,4 +662,4 @@ def test_cmd_template_write_copies_and_replaces(monkeypatch, capsys):
     assert '"replaced": 1' in out
     assert len(batch_calls) == 1
     _doc, requests = batch_calls[0]
-    assert requests == [_docs.replace_all_text_request("{{n}}", "Ash")]
+    assert requests == [_docs.replace_all_text_request("{{n}}", "Jordan")]

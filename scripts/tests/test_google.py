@@ -91,16 +91,16 @@ def _stub_service(monkeypatch) -> list[str]:
 
 def test_service_token_cached_within_scope(monkeypatch):
     minted = _stub_service(monkeypatch)
-    first = _google.get_access_token(("scope.a",))
-    second = _google.get_access_token(("scope.a",))
+    first = _google.get_access_token(("scope.a",), auth="service")
+    second = _google.get_access_token(("scope.a",), auth="service")
     assert first == second == "tok0"
     assert len(minted) == 1  # second call hit the cache
 
 
 def test_service_token_separate_per_scope_set(monkeypatch):
     minted = _stub_service(monkeypatch)
-    a = _google.get_access_token(("scope.a",))
-    b = _google.get_access_token(("scope.b", "scope.c"))
+    a = _google.get_access_token(("scope.a",), auth="service")
+    b = _google.get_access_token(("scope.b", "scope.c"), auth="service")
     # Different scope sets must not share a cache entry, or Sheets and Docs
     # tokens would collide.
     assert a == "tok0"
@@ -110,8 +110,8 @@ def test_service_token_separate_per_scope_set(monkeypatch):
 
 def test_service_scope_set_order_insensitive(monkeypatch):
     minted = _stub_service(monkeypatch)
-    _ = _google.get_access_token(("documents", "drive"))
-    _ = _google.get_access_token(("drive", "documents"))
+    _ = _google.get_access_token(("documents", "drive"), auth="service")
+    _ = _google.get_access_token(("drive", "documents"), auth="service")
     # frozenset key — reordering the same scopes reuses the token.
     assert len(minted) == 1
 
@@ -129,7 +129,7 @@ def test_service_exchange_failure_raises_auth_error(monkeypatch):
 
     monkeypatch.setattr(_google, "_exchange_jwt", boom)
     with pytest.raises(_google.GoogleAuthError):
-        _ = _google.get_access_token(("scope.a",))
+        _ = _google.get_access_token(("scope.a",), auth="service")
 
 
 def test_load_service_account_missing_env_raises(monkeypatch):
@@ -193,7 +193,7 @@ def test_service_and_oauth_tokens_do_not_collide(monkeypatch):
         "_refresh_oauth_token",
         lambda _c, _rt: AccessTokenResponse(access_token="otok", expires_in=3600),
     )
-    svc = _google.get_access_token(("scope.a",))
+    svc = _google.get_access_token(("scope.a",), auth="service")
     usr = _google.get_access_token(("scope.a",), auth="oauth")
     # Same identity string and scope, different mode -> different cache entries.
     assert svc == "tok0"
@@ -379,3 +379,36 @@ def test_code_handler_surfaces_consent_error():
     assert _google._CodeHandler.done is True
     assert _google._CodeHandler.error == "access_denied"
     assert _google._CodeHandler.code is None
+
+
+# --- auth-mode seam (current_auth / using_auth / OAUTH_USER_SCOPES) ---
+
+
+def test_current_auth_defaults_to_oauth():
+    # OAuth-user is the default mode of interacting; service is opt-in.
+    assert _google.current_auth() == "oauth"
+
+
+def test_using_auth_binds_and_restores():
+    before = _google.current_auth()
+    with _google.using_auth("service"):
+        assert _google.current_auth() == "service"
+        with _google.using_auth("oauth"):
+            assert _google.current_auth() == "oauth"
+        assert _google.current_auth() == "service"
+    assert _google.current_auth() == before
+
+
+def test_using_auth_restores_on_exception():
+    before = _google.current_auth()
+    with pytest.raises(RuntimeError), _google.using_auth("service"):
+        raise RuntimeError("boom")
+    assert _google.current_auth() == before
+
+
+def test_oauth_user_scopes_cover_docs_drive_and_sheets():
+    # One consent must grant every API the toolchain drives, so a single
+    # auth-login (from docs or sheets) is enough.
+    assert "https://www.googleapis.com/auth/documents" in _google.OAUTH_USER_SCOPES
+    assert "https://www.googleapis.com/auth/spreadsheets" in _google.OAUTH_USER_SCOPES
+    assert "https://www.googleapis.com/auth/drive" in _google.OAUTH_USER_SCOPES

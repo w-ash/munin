@@ -2,13 +2,13 @@
 
 Exception taxonomy:
 
-- ``TransientHTTPError`` — status 429 or any 5xx from any API; retryable.
+- ``TransientHTTPError``: status 429 or any 5xx from any API; retryable.
   Carries the server's Retry-After (seconds) when present, honored by the wait.
-- ``OverpassBusyError`` — Overpass returned HTML (server overloaded); retryable.
-- ``OverpassUnavailableError`` — every Overpass mirror exhausted retries;
+- ``OverpassBusyError``: Overpass returned HTML (server overloaded); retryable.
+- ``OverpassUnavailableError``: every Overpass mirror exhausted retries;
   raised by the caller's outer mirror-fallback loop so downstream code can
   distinguish "OSM confirmed empty" from "we never got an answer".
-- ``requests.Timeout`` / ``requests.ConnectionError`` — network flakes; retryable.
+- ``requests.Timeout`` / ``requests.ConnectionError``: network flakes; retryable.
 
 ``request_validated_json()`` checks the response for transient failures and
 raises the appropriate exception so tenacity can retry. Google gets jittered
@@ -20,7 +20,7 @@ Both decorators reraise on final failure so callers see the underlying
 exception instead of a ``RetryError`` wrapper.
 
 ``request_validated_json`` validates JSON responses against a Pydantic model
-in one call — parses from ``resp.content`` via ``model_validate_json`` so
+in one call. It parses from ``resp.content`` via ``model_validate_json`` so
 ``Any`` never enters the type graph.
 """
 
@@ -42,7 +42,7 @@ from tenacity import (
 )
 from tenacity.wait import wait_base
 
-# 429 + any 5xx are transient — matches the official google-api-python-client
+# 429 + any 5xx are transient; matches the official google-api-python-client
 # (`_should_retry_response`), which retries all 5xx rather than a fixed subset.
 _TOO_MANY_REQUESTS = 429
 _SERVER_ERROR = 500
@@ -51,7 +51,7 @@ _MAX_RETRY_AFTER_S = 60
 
 
 class TransientHTTPError(Exception):
-    """HTTP status in the transient set (429 or any 5xx) — retry.
+    """HTTP status in the transient set (429 or any 5xx); retry.
 
     ``retry_after`` carries the server's Retry-After delay in seconds when the
     response provided one, so the wait strategy can honor it over plain backoff.
@@ -63,14 +63,14 @@ class TransientHTTPError(Exception):
 
 
 class OverpassBusyError(Exception):
-    """Overpass returned a non-JSON (HTML busy) response — retry."""
+    """Overpass returned a non-JSON (HTML busy) response; retry."""
 
 
 class OverpassUnavailableError(Exception):
     """All Overpass mirrors exhausted retries. Caller can't fill station_lines.
 
     Distinct from "OSM had no matching elements" (that's a successful
-    empty response) — this means we never got a usable answer. Callers
+    empty response); this means we never got a usable answer. Callers
     in refresh mode should preserve existing values rather than clear
     them on this exception.
     """
@@ -90,14 +90,14 @@ APIError: tuple[type[BaseException], ...] = (
 
 # The subset worth retrying a single request on. Hard 4xx (raise_for_status
 # -> requests.HTTPError) and schema drift (ValidationError) stay in APIError
-# so callers still catch them, but retrying can't help — they fail fast
+# so callers still catch them, but retrying can't help; they fail fast
 # instead of burning the full backoff budget on a deterministic failure.
 _RETRYABLE: tuple[type[BaseException], ...] = (
     TransientHTTPError,
     OverpassBusyError,
     requests.ConnectionError,
     requests.Timeout,
-    # Body truncated/garbled mid-transfer — a transient transport failure, not a
+    # Body truncated/garbled mid-transfer: a transient transport failure, not a
     # hard 4xx. Both subclass RequestException directly (not ConnectionError), so
     # they'd otherwise be dropped from the retry set.
     requests.exceptions.ChunkedEncodingError,
@@ -146,7 +146,7 @@ overpass_retry = retry(
 
 # Wikimedia's per-minute (not per-hour) global rate limits introduced in
 # 2026 mean bursty failures arrive faster than under Google's per-day
-# quota — jittered backoff avoids thundering-herd pressure on the
+# quota; jittered backoff avoids thundering-herd pressure on the
 # per-minute bucket. Four attempts x max 16s wait ≈ 35s of backoff plus
 # up to 4x per-attempt request timeout in worst case.
 wikimedia_retry = retry(
@@ -170,7 +170,7 @@ def _parse_retry_after(resp: requests.Response) -> float | None:
         return float(raw)
     try:
         when = parsedate_to_datetime(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     if when.tzinfo is None:
         when = when.replace(tzinfo=UTC)

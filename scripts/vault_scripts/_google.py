@@ -7,7 +7,7 @@ their scopes and base URLs:
   service-account key, exchange it for a short-lived bearer token, cache it.
   Reads and in-place edits of resources shared with the account. The current
   Sheets model. Cannot own files.
-- **oauth user**: acts as Ash. A one-time installed-app consent (run by
+- **oauth user**: acts as the user. A one-time installed-app consent (run by
   ``docs auth-login``) yields a stored refresh token, refreshed silently after.
   Can own files (creation, copy, whole Drive).
 
@@ -22,7 +22,9 @@ to write, Viewer to read), or service-account calls come back 403.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
 from pathlib import Path
@@ -47,7 +49,7 @@ from vault_scripts._types import (
     ServiceAccountKey,
 )
 
-# OAuth2 token endpoint — identical across all Google service accounts, so we
+# OAuth2 token endpoint, identical across all Google service accounts, so we
 # use it directly instead of the per-key token_uri.
 OAUTH_ENDPOINT = "https://oauth2.googleapis.com/token"
 JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer"
@@ -73,11 +75,42 @@ _CLOCK_SKEW_S = 10
 
 AuthMode = Literal["service", "oauth"]
 
+# Scopes the one-time OAuth-user consent requests: the union of every Google API
+# the toolchain drives (Docs, Drive, Sheets), so a single `auth-login` grants all
+# of them. Each API call still requests only its own scope subset for the token
+# cache key; the granted token is a superset, which Google accepts.
+OAUTH_USER_SCOPES: tuple[str, ...] = (
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+)
+
+# The auth mode for the current invocation. OAuth-user is the default mode of
+# interacting (acts as the user, owns the files it creates); `--auth service` opts into
+# the sandboxed service account. Set once per run by the CLI (see _cli.run_cli);
+# read by the per-API request wrappers that don't thread an explicit auth argument.
+_auth_mode: ContextVar[AuthMode] = ContextVar("auth_mode", default="oauth")
+
+
+def current_auth() -> AuthMode:
+    """The auth mode for the current invocation (oauth unless set otherwise)."""
+    return _auth_mode.get()
+
+
+@contextmanager
+def using_auth(mode: AuthMode) -> Generator[None]:
+    """Bind the active auth mode for the duration of the block, then restore it."""
+    token = _auth_mode.set(mode)
+    try:
+        yield
+    finally:
+        _auth_mode.reset(token)
+
 
 class GoogleAuthError(Exception):
     """The credential is missing, unreadable, or malformed, or a token exchange
     failed. Distinct from an API 401/403 (those arrive as ``requests.HTTPError``
-    inside :data:`APIError`) — this fires before any data call, so the CLI maps
+    inside :data:`APIError`); this fires before any data call, so the CLI maps
     it to the auth exit code without inspecting an HTTP response."""
 
 
@@ -118,7 +151,7 @@ def _load_service_account(sa_env: tuple[str, ...]) -> ServiceAccountKey:
 
 def _build_jwt(sa: ServiceAccountKey, scopes: Sequence[str]) -> str:
     """Build a JWT asserting the SA's identity and the requested scopes, signed
-    with the account's RSA private key (RS256 — what Google requires)."""
+    with the account's RSA private key (RS256, as Google requires)."""
     iat = int(time.time()) - _CLOCK_SKEW_S
     claims: dict[str, object] = {
         "iss": sa.client_email,
@@ -282,7 +315,7 @@ class _CodeHandler(BaseHTTPRequestHandler):
         _ = self.wfile.write(b"<html><body>" + message + b"</body></html>")
 
     def log_message(self, format: str, *args: object) -> None:
-        """Silence default request logging — it would print the code to stderr."""
+        """Silence default request logging; it would print the code to stderr."""
 
 
 def oauth_login(scopes: Sequence[str]) -> OAuthToken:
@@ -336,7 +369,7 @@ def oauth_login(scopes: Sequence[str]) -> OAuthToken:
 def get_access_token(
     scopes: Sequence[str],
     *,
-    auth: AuthMode = "service",
+    auth: AuthMode,
     sa_env: tuple[str, ...] = DEFAULT_SA_ENV,
 ) -> str:
     """Return a cached or freshly minted bearer token for ``scopes`` under ``auth``.
@@ -363,16 +396,21 @@ def get_access_token(
         except APIError as e:
             raise GoogleAuthError(f"token exchange failed: {e}") from e
     else:
+        # Key on the env-var-derived client/token paths (stable within a process)
+        # and check the cache before touching disk, mirroring the service branch:
+        # a cached token must not re-read and re-parse both credential JSONs on
+        # every call.
+        identity = f"{os.environ.get(OAUTH_CLIENT_ENV, '')}|{oauth_token_path()}"
+        cache_key = ("oauth", identity, scope_key)
+        cached = _token_cache.get(cache_key)
+        if cached is not None and time.monotonic() < cached[1]:
+            return cached[0]
         client = _load_oauth_client()
         stored = _load_oauth_token()
         if stored is None or not stored.refresh_token:
             raise GoogleAuthError(
                 "no stored OAuth token; run `vault-tool docs auth-login` first"
             )
-        cache_key = ("oauth", client.client_id, scope_key)
-        cached = _token_cache.get(cache_key)
-        if cached is not None and time.monotonic() < cached[1]:
-            return cached[0]
         try:
             token = _refresh_oauth_token(client, stored.refresh_token)
         except APIError as e:
@@ -391,7 +429,7 @@ def authed_request[M: BaseModel](
     *,
     response_model: type[M],
     scopes: Sequence[str],
-    auth: AuthMode = "service",
+    auth: AuthMode,
     sa_env: tuple[str, ...] = DEFAULT_SA_ENV,
     params: dict[str, str] | None = None,
     json: object | None = None,
@@ -442,7 +480,7 @@ _HTTP_FORBIDDEN = 403
 
 
 def google_error(e: BaseException) -> GoogleApiError | None:
-    """Parse Google's structured error body — ``{"error": {code, status, message}}`` —
+    """Parse Google's structured error body, ``{"error": {code, status, message}}``,
     from a failed request. Returns None when the failure isn't an HTTPError with a
     JSON body (callers fall back to the raw exception text)."""
     if not (isinstance(e, requests.HTTPError) and e.response is not None):

@@ -220,6 +220,7 @@ def main() -> None:
         filename = (
             f"{contact['first']} {contact['last']}"
             if first_name_counts.get(contact["first"], 0) > 1
+            or contact["first"].lower() in existing
             else contact["first"]
         )
         to_create.append((contact, filename))
@@ -244,7 +245,7 @@ def main() -> None:
         for contact, filename in to_create:
             path = PEOPLE_ENTRIES / f"{filename}.md"
             if path.exists():
-                print(f"  ⚠️  Skipping {path.name} (already exists)")
+                print(f"  ⚠️  Skipping {path.name} (filename collision with an existing note)")
                 continue
             path.write_text(generate_note(contact))
             print(f"  ✅ Created {path.name}")
@@ -253,7 +254,7 @@ def main() -> None:
         print("\n🔄 Enriching existing notes with missing birthdays...")
         for contact, path in to_enrich:
             text = path.read_text()
-            # Only fill a missing birthday — never overwrite a hand-entered one
+            # Only fill a missing birthday; never overwrite a hand-entered one
             # (Contacts may hold a less precise year-unknown value).
             if has_field(text, "birthday"):
                 continue

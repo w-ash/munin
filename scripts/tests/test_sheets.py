@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from vault_scripts import _google, _sheets, sheets
+from vault_scripts import _cli, _google, _sheets, sheets
 from vault_scripts._types import (
     BatchClearValuesResponse,
     BatchGetValuesResponse,
@@ -863,7 +863,7 @@ def test_create_dry_run_makes_no_call(monkeypatch, capsys):
     assert '"wouldCreate": "New Budget"' in capsys.readouterr().out
 
 
-def test_create_write_returns_id_and_ownership_note(monkeypatch, capsys):
+def _fake_create(monkeypatch):
     def fake_create(title):
         return CreateSpreadsheetResponse(
             spreadsheetId="newid",
@@ -872,10 +872,50 @@ def test_create_write_returns_id_and_ownership_note(monkeypatch, capsys):
         )
 
     monkeypatch.setattr(_sheets, "create_spreadsheet", fake_create)
+
+
+def test_create_write_oauth_default_notes_ownership(monkeypatch, capsys):
+    # oauth is the default mode, so a created sheet is the user's and opens directly.
+    _fake_create(monkeypatch)
     sheets.cmd_create(_create_args(write=True), "")
     out = capsys.readouterr().out
     assert '"spreadsheetId": "newid"' in out
+    assert "your Google account" in out
+    assert "service account" not in out
+
+
+def test_create_write_service_mode_notes_sharing(monkeypatch, capsys):
+    # --auth service makes a service-account-owned sheet that must be shared.
+    _fake_create(monkeypatch)
+    with _google.using_auth("service"):
+        sheets.cmd_create(_create_args(write=True), "")
+    out = capsys.readouterr().out
+    assert '"spreadsheetId": "newid"' in out
     assert "service account" in out
+
+
+def test_sheets_request_threads_active_auth(monkeypatch):
+    """The CLI's auth mode reaches the transport: _sheets_request passes the active
+    mode (current_auth) to authed_request, with no per-function threading."""
+    seen: dict[str, object] = {}
+
+    def fake_authed(method, url, *, response_model, scopes, auth, **_):
+        seen["auth"] = auth
+        return response_model()
+
+    monkeypatch.setattr(_sheets, "authed_request", fake_authed)
+    with _google.using_auth("service"):
+        _ = _sheets.values_get("sid", "S!A1")
+    assert seen["auth"] == "service"
+    with _google.using_auth("oauth"):
+        _ = _sheets.values_get("sid", "S!A1")
+    assert seen["auth"] == "oauth"
+
+
+def test_auth_parent_defaults_to_oauth():
+    parser = _cli.auth_parent()
+    assert parser.parse_args([]).auth == "oauth"
+    assert parser.parse_args(["--auth", "service"]).auth == "service"
 
 
 def test_cmd_list_sheets_outputs_dimensions(monkeypatch, capsys):
@@ -891,7 +931,7 @@ def test_cmd_list_sheets_outputs_dimensions(monkeypatch, capsys):
             )
         ],
     )
-    sheets.cmd_list_sheets("sid")
+    sheets.cmd_list_sheets(sheets._Args(), "sid")
     out = capsys.readouterr().out
     assert '"title": "Budget"' in out
     assert '"rows": 100' in out
@@ -919,8 +959,9 @@ def test_cmd_batch_get_outputs_value_ranges(monkeypatch, capsys):
 
 
 def test_error_envelope_includes_status_and_code():
-    env = sheets.error_envelope(
+    env = _cli.error_envelope(
         "read-range",
+        "spreadsheetId",
         "sid",
         "PERMISSION_DENIED: no",
         status="PERMISSION_DENIED",
@@ -931,7 +972,7 @@ def test_error_envelope_includes_status_and_code():
 
 
 def test_error_envelope_omits_absent_status_and_code():
-    env = sheets.error_envelope("read-range", "sid", "boom")
+    env = _cli.error_envelope("read-range", "spreadsheetId", "sid", "boom")
     assert "status" not in env
     assert "code" not in env
 

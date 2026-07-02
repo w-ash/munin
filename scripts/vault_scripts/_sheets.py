@@ -1,12 +1,12 @@
 """REST wrappers for the Google Sheets API.
 
-Auth and the shared transport live in :mod:`vault_scripts._google` (the
-service-account JWT mint, token cache, and the authenticated REST helper). This
-module binds that helper to the Sheets scope and base URL and exposes one
-function per Sheets operation.
+Auth and the shared transport live in :mod:`vault_scripts._google` (the token
+mint, token cache, and the authenticated REST helper). This module binds that
+helper to the Sheets scope and the invocation's auth mode (oauth user by default;
+service account under ``--auth service``) and exposes one function per operation.
 
-Share each target spreadsheet with the service account's ``client_email``
-(Editor for writes, Viewer for read-only), or calls come back 403.
+Under ``--auth service``, share each target spreadsheet with the service account's
+``client_email`` (Editor for writes, Viewer for read-only), or calls come back 403.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from urllib.parse import quote, urlencode
 
 from pydantic import BaseModel
 
-from vault_scripts._google import authed_request
+from vault_scripts._google import authed_request, current_auth
 from vault_scripts._types import (
     AppendValuesResponse,
     BatchClearValuesResponse,
@@ -46,15 +46,18 @@ def _sheets_request[M: BaseModel](
     """Issue an authenticated Sheets REST call, validated against ``response_model``.
 
     Binds the shared :func:`vault_scripts._google.authed_request` to the Sheets
-    scope; the retry policy, Bearer header, and JSON validation all live in the
-    shared transport. Pass ``idempotent=False`` for row appends and resource
-    creates so a retried transport error can't duplicate them.
+    scope and the invocation's auth mode (:func:`current_auth`; oauth user by
+    default, service account under ``--auth service``); the retry policy, Bearer
+    header, and JSON validation all live in the shared transport. Pass
+    ``idempotent=False`` for row appends and resource creates so a retried
+    transport error can't duplicate them.
     """
     return authed_request(
         method,
         url,
         response_model=response_model,
         scopes=(SHEETS_SCOPE,),
+        auth=current_auth(),
         params=params,
         json=json,
         idempotent=idempotent,
@@ -63,7 +66,7 @@ def _sheets_request[M: BaseModel](
 
 def _values_url(spreadsheet_id: str, a1_range: str, suffix: str = "") -> str:
     """Build a ``spreadsheets.values`` URL. The A1 range sits in the path and
-    must be percent-encoded — it contains ``!`` and ``:``."""
+    must be percent-encoded; it contains ``!`` and ``:``."""
     return f"{SHEETS_BASE}/{spreadsheet_id}/values/{quote(a1_range, safe='')}{suffix}"
 
 
@@ -279,7 +282,7 @@ def find_replace(
 ) -> BatchUpdateSpreadsheetResponse:
     """Find and replace across one sheet (``sheet_id``) or every sheet (when None),
     via ``FindReplaceRequest``. ``regex`` enables searchByRegex; ``include_formulas``
-    also rewrites formula text. There is no preview mode — the change applies on call."""
+    also rewrites formula text. There is no preview mode; the change applies on call."""
     req: dict[str, object] = {"find": find, "replacement": replacement}
     if match_case:
         req["matchCase"] = True
@@ -297,9 +300,9 @@ def find_replace(
 
 
 def create_spreadsheet(title: str) -> CreateSpreadsheetResponse:
-    """Create a new spreadsheet (``spreadsheets.create``). It is owned by the
-    service account and lives in its Drive; a human account must be granted
-    access before it can be opened in a browser."""
+    """Create a new spreadsheet (``spreadsheets.create``). Under oauth-user auth
+    (the default) it is owned by the user and opens directly; under ``--auth service``
+    it is owned by the service account and must be shared before it can be opened."""
     return _sheets_request(
         "POST",
         SHEETS_BASE,

@@ -6,8 +6,10 @@ envelope ``{ok, cmd, spreadsheetId, result}`` to stdout; errors print
 ``{ok: false, ..., error}`` and exit with a code (2 validation, 3 auth,
 4 permission, 5 API).
 
-Auth is a service account — see ``_sheets`` and ``.env.example``. Share each
-target sheet with the service account's client_email or calls 403.
+Auth runs through the shared seam in ``_google``. ``--auth oauth`` (the default)
+acts as the user: reads, in-place edits, and owned-file creation, after a one-time
+``sheets auth-login`` (shared with the ``docs`` login). ``--auth service`` uses the
+service account; share each target sheet with its client_email or calls 403.
 
 Usage:
     scripts/vault-tool sheets read-range  --spreadsheet <id|url> --range "Sheet1!A1:C5"
@@ -40,8 +42,8 @@ sits lower or stacks across rows, pass --header-row N (where it starts) and
 
 Mutating commands (append, set-range, update-key, batch, clear, batch-clear,
 rename-sheet, delete-sheet, duplicate-sheet, create) default to a dry-run and need
---write to apply. ``create`` makes a spreadsheet owned by the service account; it
-must be shared with a human account before it can be opened in a browser.
+--write to apply. ``create`` under the default oauth auth makes a spreadsheet the
+user owns and can open directly; under ``--auth service`` it must be shared first.
 """
 
 from __future__ import annotations
@@ -58,6 +60,7 @@ from vault_scripts._cli import (
     print_json as _print,
     require_flag as _require,
 )
+from vault_scripts._google import AuthMode, current_auth
 from vault_scripts._types import (
     AppendUpdate,
     BatchOps,
@@ -134,7 +137,7 @@ def combine_header(
     is forward-filled (so merged group labels spread across their columns); the
     last row is taken as-is. A column's key is its non-empty, de-duplicated parts
     joined top to bottom with a space ("Q1" over "Jan" -> "Q1 Jan"). With
-    ``(1, 1)`` this is just the first row — a plain single-row header.
+    ``(1, 1)`` this is just the first row, a plain single-row header.
     """
     if header_row < 1:
         raise CliError(f"--header-row must be >= 1, got {header_row}")
@@ -213,31 +216,9 @@ def _col_a1(sheet: str, col: int, row: int) -> str:
     return f"{_quote_sheet(sheet)}!{_col_letter(col + 1)}{row}"
 
 
-def envelope(
-    cmd: str,
-    spreadsheet_id: str,
-    result: object,
-    *,
-    ok: bool = True,
-) -> dict[str, object]:
-    """The standard success envelope."""
-    return _cli.envelope(cmd, _ID_KEY, spreadsheet_id, result, ok=ok)
-
-
-def error_envelope(
-    cmd: str,
-    spreadsheet_id: str,
-    message: str,
-    *,
-    status: str | None = None,
-    code: int | None = None,
-) -> dict[str, object]:
-    """Failure envelope. ``status``/``code`` carry Google's machine-readable error
-    fields (e.g. PERMISSION_DENIED / 403) when the response body parsed, so scripts
-    can branch on them instead of scraping the message."""
-    return _cli.error_envelope(
-        cmd, _ID_KEY, spreadsheet_id, message, status=status, code=code
-    )
+# The success envelope and dry-run-or-apply tail, with this CLI's id key bound.
+envelope = _cli.make_envelope(_ID_KEY)
+_emit_write = _cli.make_emit_write(_ID_KEY)
 
 
 # --- JSON input parsing (CLI strings -> typed, stringified cells) ---
@@ -330,18 +311,7 @@ class _Args(argparse.Namespace):
     include_formulas: bool
     header_row: int
     header_rows: int
-
-
-def _emit_write(
-    cmd: str,
-    sid: str,
-    *,
-    write: bool,
-    dry: dict[str, object],
-    apply: Callable[[], dict[str, object]],
-) -> None:
-    """Dry-run-or-apply tail; delegates to :func:`vault_scripts._cli.emit_write`."""
-    _cli.emit_write(cmd, _ID_KEY, sid, write=write, dry=dry, apply=apply)
+    auth: AuthMode
 
 
 def cmd_read_range(args: _Args, sid: str) -> None:
@@ -454,14 +424,14 @@ def cmd_batch(args: _Args, sid: str) -> None:
 
 
 def cmd_add_sheet(args: _Args, sid: str) -> None:
-    # Idempotent and additive (creates an empty sheet), so it just runs — no
+    # Idempotent and additive (creates an empty sheet), so it just runs: no
     # --write gate. Re-running is a no-op once the sheet exists.
     title = _require(args.title, "--title")
     created = _sheets.add_sheet(sid, title)
     _print(envelope("add-sheet", sid, {"title": title, "created": created}))
 
 
-def cmd_list_sheets(sid: str) -> None:
+def cmd_list_sheets(_args: _Args, sid: str) -> None:
     props = _sheets.list_sheets(sid)
     out = [
         {
@@ -589,9 +559,11 @@ def cmd_duplicate_sheet(args: _Args, sid: str) -> None:
     )
 
 
-# Surfaced in the create result: the new spreadsheet is the service account's,
-# not Ash's, until it's explicitly shared (which needs the Drive API).
-_CREATE_NOTE = (
+# Surfaced in the create result. Under oauth (the default) the new spreadsheet is
+# the user's and opens directly; under --auth service it is the service account's,
+# not the user's, until it's explicitly shared (which needs the Drive API).
+_CREATE_NOTE_OAUTH = "Owned by your Google account; open the URL directly."
+_CREATE_NOTE_SERVICE = (
     "Owned by the service account; share it with your Google account "
     "to open it in a browser."
 )
@@ -599,6 +571,7 @@ _CREATE_NOTE = (
 
 def cmd_create(args: _Args, sid: str) -> None:
     title = _require(args.title, "--title")
+    note = _CREATE_NOTE_OAUTH if current_auth() == "oauth" else _CREATE_NOTE_SERVICE
 
     def apply() -> dict[str, object]:
         r = _sheets.create_spreadsheet(title)
@@ -606,7 +579,7 @@ def cmd_create(args: _Args, sid: str) -> None:
             "spreadsheetId": r.spreadsheetId,
             "spreadsheetUrl": r.spreadsheetUrl,
             "title": title,
-            "note": _CREATE_NOTE,
+            "note": note,
         }
 
     _emit_write(
@@ -614,12 +587,16 @@ def cmd_create(args: _Args, sid: str) -> None:
     )
 
 
+def cmd_auth_login(_args: _Args, _sid: str) -> None:
+    _print(envelope("auth-login", "", _cli.auth_login()))
+
+
 def cmd_find_replace(args: _Args, sid: str) -> None:
     find = _require(args.find, "--find")
     replacement = _require(args.replace, "--replace")
     # Scope to one sheet by name, or every sheet when --sheet is omitted. The
     # preview only needs the name, so the name->sheetId lookup is deferred to the
-    # write path — the dry-run stays offline (unlike rename/delete, whose preview
+    # write path; the dry-run stays offline (unlike rename/delete, whose preview
     # shows the resolved sheetId and so must resolve up front).
     scope = args.sheet if args.sheet is not None else "all sheets"
 
@@ -662,39 +639,31 @@ def cmd_find_replace(args: _Args, sid: str) -> None:
 # --- CLI plumbing ---
 
 
+# Subcommand dispatch. argparse declares the same names with required=True, so
+# an unknown command never reaches the lookup.
+_COMMANDS: dict[str, Callable[[_Args, str], None]] = {
+    "read-range": cmd_read_range,
+    "read-table": cmd_read_table,
+    "append": cmd_append,
+    "set-range": cmd_set_range,
+    "update-key": cmd_update_key,
+    "batch": cmd_batch,
+    "add-sheet": cmd_add_sheet,
+    "list-sheets": cmd_list_sheets,
+    "batch-get": cmd_batch_get,
+    "clear": cmd_clear,
+    "batch-clear": cmd_batch_clear,
+    "rename-sheet": cmd_rename_sheet,
+    "delete-sheet": cmd_delete_sheet,
+    "duplicate-sheet": cmd_duplicate_sheet,
+    "create": cmd_create,
+    "find-replace": cmd_find_replace,
+    "auth-login": cmd_auth_login,
+}
+
+
 def _run(args: _Args, sid: str) -> None:
-    if args.command == "read-range":
-        cmd_read_range(args, sid)
-    elif args.command == "read-table":
-        cmd_read_table(args, sid)
-    elif args.command == "append":
-        cmd_append(args, sid)
-    elif args.command == "set-range":
-        cmd_set_range(args, sid)
-    elif args.command == "update-key":
-        cmd_update_key(args, sid)
-    elif args.command == "batch":
-        cmd_batch(args, sid)
-    elif args.command == "add-sheet":
-        cmd_add_sheet(args, sid)
-    elif args.command == "list-sheets":
-        cmd_list_sheets(sid)
-    elif args.command == "batch-get":
-        cmd_batch_get(args, sid)
-    elif args.command == "clear":
-        cmd_clear(args, sid)
-    elif args.command == "batch-clear":
-        cmd_batch_clear(args, sid)
-    elif args.command == "rename-sheet":
-        cmd_rename_sheet(args, sid)
-    elif args.command == "delete-sheet":
-        cmd_delete_sheet(args, sid)
-    elif args.command == "duplicate-sheet":
-        cmd_duplicate_sheet(args, sid)
-    elif args.command == "create":
-        cmd_create(args, sid)
-    elif args.command == "find-replace":
-        cmd_find_replace(args, sid)
+    _COMMANDS[args.command](args, sid)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -704,6 +673,10 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=__doc__,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # --auth applies to every command (oauth user by default; --auth service for
+    # the sandboxed service account). Shared with the docs CLI via _cli.
+    auth_opts = _cli.auth_parent()
 
     common = argparse.ArgumentParser(add_help=False)
     _ = common.add_argument(
@@ -760,20 +733,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     rr = subparsers.add_parser(
-        "read-range", parents=[common, render_opts], help="Read an A1 range"
+        "read-range", parents=[auth_opts, common, render_opts], help="Read an A1 range"
     )
     _ = rr.add_argument("--range", required=True, help="A1 range, e.g. 'Sheet1!A1:C5'")
 
     rt = subparsers.add_parser(
         "read-table",
-        parents=[common, header_opts, render_opts],
+        parents=[auth_opts, common, header_opts, render_opts],
         help="Read a sheet as positioned {row, cells} records",
     )
     _ = rt.add_argument("--sheet", required=True, help="Sheet name")
 
     ap = subparsers.add_parser(
         "append",
-        parents=[common, write_opts],
+        parents=[auth_opts, common, write_opts],
         help="Append rows to a sheet",
     )
     _ = ap.add_argument("--sheet", required=True, help="Sheet name")
@@ -785,7 +758,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sr = subparsers.add_parser(
         "set-range",
-        parents=[common, write_opts],
+        parents=[auth_opts, common, write_opts],
         help="Overwrite an A1 range",
     )
     _ = sr.add_argument("--range", required=True, help="A1 range, e.g. 'Sheet1!M2'")
@@ -793,7 +766,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     uk = subparsers.add_parser(
         "update-key",
-        parents=[common, write_opts, header_opts],
+        parents=[auth_opts, common, write_opts, header_opts],
         help="Update the row whose key column matches a value",
     )
     _ = uk.add_argument("--sheet", required=True, help="Sheet name")
@@ -809,7 +782,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ba = subparsers.add_parser(
         "batch",
-        parents=[common, write_opts],
+        parents=[auth_opts, common, write_opts],
         help="Write several ranges atomically",
     )
     _ = ba.add_argument(
@@ -820,20 +793,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
     asheet = subparsers.add_parser(
         "add-sheet",
-        parents=[common],
+        parents=[auth_opts, common],
         help="Create a sheet if absent (idempotent)",
     )
     _ = asheet.add_argument("--title", required=True, help="Sheet name to create")
 
     _ = subparsers.add_parser(
         "list-sheets",
-        parents=[common],
+        parents=[auth_opts, common],
         help="List the sheets in a spreadsheet (title, sheetId, dimensions)",
     )
 
     bg = subparsers.add_parser(
         "batch-get",
-        parents=[common, render_opts],
+        parents=[auth_opts, common, render_opts],
         help="Read several ranges in one call",
     )
     _ = bg.add_argument(
@@ -844,14 +817,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     cl = subparsers.add_parser(
         "clear",
-        parents=[common, write_flag],
+        parents=[auth_opts, common, write_flag],
         help="Clear the values in an A1 range",
     )
     _ = cl.add_argument("--range", required=True, help="A1 range, e.g. 'Sheet1!A1:B10'")
 
     bc = subparsers.add_parser(
         "batch-clear",
-        parents=[common, write_flag],
+        parents=[auth_opts, common, write_flag],
         help="Clear several ranges atomically",
     )
     _ = bc.add_argument(
@@ -860,7 +833,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     rn = subparsers.add_parser(
         "rename-sheet",
-        parents=[common, write_flag],
+        parents=[auth_opts, common, write_flag],
         help="Rename a sheet",
     )
     _ = rn.add_argument("--sheet", required=True, help="Current sheet name")
@@ -868,14 +841,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     dl = subparsers.add_parser(
         "delete-sheet",
-        parents=[common, write_flag],
+        parents=[auth_opts, common, write_flag],
         help="Delete a sheet",
     )
     _ = dl.add_argument("--sheet", required=True, help="Sheet name to delete")
 
     dup = subparsers.add_parser(
         "duplicate-sheet",
-        parents=[common, write_flag],
+        parents=[auth_opts, common, write_flag],
         help="Duplicate a sheet",
     )
     _ = dup.add_argument("--sheet", required=True, help="Sheet name to duplicate")
@@ -883,14 +856,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     cr = subparsers.add_parser(
         "create",
-        parents=[write_flag],
-        help="Create a new spreadsheet (owned by the service account)",
+        parents=[auth_opts, write_flag],
+        help="Create a new spreadsheet (owned by you under oauth, the default)",
     )
     _ = cr.add_argument("--title", required=True, help="Title for the new spreadsheet")
 
     fr = subparsers.add_parser(
         "find-replace",
-        parents=[common, write_flag],
+        parents=[auth_opts, common, write_flag],
         help="Find and replace a value across a sheet or the whole spreadsheet",
     )
     _ = fr.add_argument("--find", required=True, help="Text (or regex) to find")
@@ -912,16 +885,23 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also search and replace within formula text",
     )
+
+    _ = subparsers.add_parser(
+        "auth-login",
+        parents=[auth_opts],
+        help="Run the one-time OAuth consent and store the token (shared with docs)",
+    )
     return parser
 
 
 def main() -> None:
     parser = _build_parser()
     args = parse_typed_args(parser, _Args)
-    # create makes a spreadsheet, so it takes no --spreadsheet; its envelope
-    # carries the new id in the result, not the top-level spreadsheetId.
-    sid = "" if args.command == "create" else parse_spreadsheet_id(args.spreadsheet)
-    _cli.run_cli(args.command, _ID_KEY, sid, lambda: _run(args, sid))
+    # create and auth-login take no --spreadsheet; create's envelope carries the
+    # new id in the result, not the top-level spreadsheetId.
+    no_spreadsheet = {"create", "auth-login"}
+    sid = "" if args.command in no_spreadsheet else parse_spreadsheet_id(args.spreadsheet)
+    _cli.run_cli(args.command, _ID_KEY, sid, args.auth, lambda: _run(args, sid))
 
 
 if __name__ == "__main__":

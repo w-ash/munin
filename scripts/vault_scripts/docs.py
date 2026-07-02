@@ -5,10 +5,10 @@ apply (same convention as ``sheets``). Every command prints a JSON envelope
 ``{ok, cmd, documentId, result}`` to stdout; errors print ``{ok: false, ...,
 error}`` and exit with a code (2 validation, 3 auth, 4 permission, 5 API).
 
-Auth runs through the shared seam in ``_google``. ``--auth service`` (default)
-acts as the service account: reads and in-place edits of docs shared with it.
-``--auth oauth`` acts as Ash: owned-file creation, after a one-time
-``docs auth-login``.
+Auth runs through the shared seam in ``_google``. ``--auth oauth`` (the default)
+acts as the user: reads, in-place edits, and owned-file creation, after a one-time
+``docs auth-login``. ``--auth service`` acts as the service account: reads and
+in-place edits of docs explicitly shared with it.
 
 Usage:
     scripts/vault-tool docs export <id|url>
@@ -21,7 +21,7 @@ Usage:
     scripts/vault-tool docs insert-text <id> --index 25 --text "Hi " --write
     scripts/vault-tool docs delete-range <id> --start 25 --end 30 --write
     scripts/vault-tool docs style-text <id> --start 1 --end 10 --bold --write
-    scripts/vault-tool docs replace-all <id> --find "{{name}}" --replace "Ash" --write
+    scripts/vault-tool docs replace-all <id> --find "{{name}}" --replace "Jordan" --write
     scripts/vault-tool docs batch <id> --requests '[{"insertText": {...}}]' --write
 
 The document argument accepts a bare ID or a full Docs URL. Index-based commands
@@ -45,9 +45,9 @@ from vault_scripts._cli import (
     print_json as _print,
     require_flag as _require,
 )
-from vault_scripts._google import AuthMode, oauth_login, oauth_token_path
+from vault_scripts._google import AuthMode
 from vault_scripts._types import BatchRequests, DocsBatchUpdateResponse
-from vault_scripts._utils import VAULT, parse_typed_args
+from vault_scripts._utils import VAULT, find_vault_file, parse_typed_args
 
 # A Google Docs URL, used to build the result link for newly created docs.
 _DOC_URL = "https://docs.google.com/document/d/{}/edit"
@@ -59,30 +59,9 @@ _ID_KEY = "documentId"
 # --- Pure helpers (no network; unit-tested) ---
 
 
-def envelope(
-    cmd: str,
-    document_id: str,
-    result: object,
-    *,
-    ok: bool = True,
-) -> dict[str, object]:
-    """The standard success envelope."""
-    return _cli.envelope(cmd, _ID_KEY, document_id, result, ok=ok)
-
-
-def error_envelope(
-    cmd: str,
-    document_id: str,
-    message: str,
-    *,
-    status: str | None = None,
-    code: int | None = None,
-) -> dict[str, object]:
-    """Failure envelope. ``status``/``code`` carry Google's machine-readable error
-    fields (e.g. PERMISSION_DENIED / 403) when the response body parsed."""
-    return _cli.error_envelope(
-        cmd, _ID_KEY, document_id, message, status=status, code=code
-    )
+# The success envelope and dry-run-or-apply tail, with this CLI's id key bound.
+envelope = _cli.make_envelope(_ID_KEY)
+_emit_write = _cli.make_emit_write(_ID_KEY)
 
 
 def _parse_requests(raw: str) -> list[dict[str, object]]:
@@ -99,10 +78,8 @@ def _parse_requests(raw: str) -> list[dict[str, object]]:
 
 def _resolve_note(path_arg: str) -> Path:
     """Resolve a --from note path: vault-relative first, then as given."""
-    path = VAULT / path_arg
-    if not path.exists():
-        path = Path(path_arg)
-    if not path.exists():
+    path = find_vault_file(path_arg)
+    if path is None:
         raise CliError(f"file not found: {path_arg}")
     return path
 
@@ -149,20 +126,8 @@ class _Args(argparse.Namespace):
     auth: AuthMode
 
 
-def _emit_write(
-    cmd: str,
-    doc_id: str,
-    *,
-    write: bool,
-    dry: dict[str, object],
-    apply: Callable[[], dict[str, object]],
-) -> None:
-    """Dry-run-or-apply tail; delegates to :func:`vault_scripts._cli.emit_write`."""
-    _cli.emit_write(cmd, _ID_KEY, doc_id, write=write, dry=dry, apply=apply)
-
-
 def cmd_export(args: _Args, doc_id: str) -> None:
-    md = _docs.export_markdown(doc_id, auth=args.auth)
+    md = _docs.export_markdown(doc_id)
     result: dict[str, object] = {"length": len(md)}
     if args.out:
         out_path = Path(args.out)
@@ -178,10 +143,10 @@ def cmd_export(args: _Args, doc_id: str) -> None:
 
 def cmd_get(args: _Args, doc_id: str) -> None:
     if args.raw_json:
-        raw = _docs.get_document_raw(doc_id, auth=args.auth)
+        raw = _docs.get_document_raw(doc_id)
         _print(envelope("get", doc_id, {"document": raw.root}))
         return
-    doc = _docs.get_document(doc_id, auth=args.auth)
+    doc = _docs.get_document(doc_id)
     runs = _docs.text_index_map(doc)
     _print(
         envelope(
@@ -198,8 +163,8 @@ def cmd_get(args: _Args, doc_id: str) -> None:
     )
 
 
-def cmd_info(args: _Args, doc_id: str) -> None:
-    doc = _docs.get_document(doc_id, auth=args.auth)
+def cmd_info(_args: _Args, doc_id: str) -> None:
+    doc = _docs.get_document(doc_id)
     _print(
         envelope(
             "info",
@@ -218,7 +183,7 @@ def cmd_find(args: _Args, _doc_id: str) -> None:
     documents: list[dict[str, str]] = []
     page_token: str | None = None
     while True:
-        resp = _docs.list_docs(args.query, page_token=page_token, auth=args.auth)
+        resp = _docs.list_docs(args.query, page_token=page_token)
         documents.extend({"id": f.id, "name": f.name} for f in resp.files)
         page_token = resp.nextPageToken or None
         if page_token is None:
@@ -236,8 +201,8 @@ def cmd_find(args: _Args, _doc_id: str) -> None:
     )
 
 
-def cmd_list_named_ranges(args: _Args, doc_id: str) -> None:
-    doc = _docs.get_document(doc_id, auth=args.auth)
+def cmd_list_named_ranges(_args: _Args, doc_id: str) -> None:
+    doc = _docs.get_document(doc_id)
     ranges = [
         {"name": group.name or name, "namedRangeId": nr.namedRangeId}
         for name, group in doc.namedRanges.items()
@@ -254,7 +219,7 @@ def _batch(
     doc_id: str, request: dict[str, object], args: _Args
 ) -> DocsBatchUpdateResponse:
     return _docs.batch_update(
-        doc_id, [request], required_revision_id=args.revision_id, auth=args.auth
+        doc_id, [request], required_revision_id=args.revision_id
     )
 
 
@@ -366,7 +331,7 @@ def cmd_batch(args: _Args, doc_id: str) -> None:
 
     def apply() -> dict[str, object]:
         resp = _docs.batch_update(
-            doc_id, requests, required_revision_id=args.revision_id, auth=args.auth
+            doc_id, requests, required_revision_id=args.revision_id
         )
         return {"requestCount": len(requests), "replyCount": len(resp.replies)}
 
@@ -396,7 +361,7 @@ def cmd_create(args: _Args, _doc_id: str) -> None:
     title = args.title or src.stem
 
     def apply() -> dict[str, object]:
-        created = _docs.import_markdown(title, md_bytes, auth=args.auth)
+        created = _docs.import_markdown(title, md_bytes)
         return {
             "documentId": created.id,
             "title": created.name,
@@ -419,10 +384,10 @@ def cmd_template(args: _Args, _doc_id: str) -> None:
     title = args.title or "Copy"
 
     def apply() -> dict[str, object]:
-        copy = _docs.copy_file(template_id, title, auth=args.auth)
+        copy = _docs.copy_file(template_id, title)
         requests = list(starmap(_docs.replace_all_text_request, replacements.items()))
         if requests:
-            _ = _docs.batch_update(copy.id, requests, auth=args.auth)
+            _ = _docs.batch_update(copy.id, requests)
         return {
             "documentId": copy.id,
             "title": copy.name,
@@ -440,48 +405,34 @@ def cmd_template(args: _Args, _doc_id: str) -> None:
 
 
 def cmd_auth_login(_args: _Args, _doc_id: str) -> None:
-    token = oauth_login(_docs.DOCS_DRIVE_SCOPES)
-    _print(
-        envelope(
-            "auth-login",
-            "",
-            {"stored": str(oauth_token_path()), "scopes": token.scopes},
-        )
-    )
+    _print(envelope("auth-login", "", _cli.auth_login()))
 
 
 # --- CLI plumbing ---
 
 
+# Subcommand dispatch. argparse declares the same names with required=True, so
+# an unknown command never reaches the lookup.
+_COMMANDS: dict[str, Callable[[_Args, str], None]] = {
+    "export": cmd_export,
+    "get": cmd_get,
+    "info": cmd_info,
+    "find": cmd_find,
+    "list-named-ranges": cmd_list_named_ranges,
+    "append-text": cmd_append_text,
+    "insert-text": cmd_insert_text,
+    "delete-range": cmd_delete_range,
+    "style-text": cmd_style_text,
+    "replace-all": cmd_replace_all,
+    "batch": cmd_batch,
+    "create": cmd_create,
+    "template": cmd_template,
+    "auth-login": cmd_auth_login,
+}
+
+
 def _run(args: _Args, doc_id: str) -> None:
-    if args.command == "export":
-        cmd_export(args, doc_id)
-    elif args.command == "get":
-        cmd_get(args, doc_id)
-    elif args.command == "info":
-        cmd_info(args, doc_id)
-    elif args.command == "find":
-        cmd_find(args, doc_id)
-    elif args.command == "list-named-ranges":
-        cmd_list_named_ranges(args, doc_id)
-    elif args.command == "append-text":
-        cmd_append_text(args, doc_id)
-    elif args.command == "insert-text":
-        cmd_insert_text(args, doc_id)
-    elif args.command == "delete-range":
-        cmd_delete_range(args, doc_id)
-    elif args.command == "style-text":
-        cmd_style_text(args, doc_id)
-    elif args.command == "replace-all":
-        cmd_replace_all(args, doc_id)
-    elif args.command == "batch":
-        cmd_batch(args, doc_id)
-    elif args.command == "create":
-        cmd_create(args, doc_id)
-    elif args.command == "template":
-        cmd_template(args, doc_id)
-    elif args.command == "auth-login":
-        cmd_auth_login(args, doc_id)
+    _COMMANDS[args.command](args, doc_id)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -492,14 +443,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # --auth applies to every command (service default; oauth for owned files).
-    auth_opts = argparse.ArgumentParser(add_help=False)
-    _ = auth_opts.add_argument(
-        "--auth",
-        choices=["service", "oauth"],
-        default="service",
-        help="Auth mode: service account (default) or oauth user",
-    )
+    # --auth applies to every command (oauth user by default; --auth service for
+    # the sandboxed service account). Shared with the sheets CLI via _cli.
+    auth_opts = _cli.auth_parent()
 
     # The document positional, for every command except find.
     doc_opts = argparse.ArgumentParser(add_help=False)
@@ -655,7 +601,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     _ = subparsers.add_parser(
-        "auth-login", help="Run the one-time OAuth consent flow and store the token"
+        "auth-login",
+        parents=[auth_opts],
+        help="Run the one-time OAuth consent flow and store the token",
     )
 
     return parser
@@ -668,7 +616,7 @@ def main() -> None:
     # id/URL up front.
     no_document = {"find", "create", "template", "auth-login"}
     doc_id = "" if args.command in no_document else parse_document_id(args.document)
-    _cli.run_cli(args.command, _ID_KEY, doc_id, lambda: _run(args, doc_id))
+    _cli.run_cli(args.command, _ID_KEY, doc_id, args.auth, lambda: _run(args, doc_id))
 
 
 if __name__ == "__main__":

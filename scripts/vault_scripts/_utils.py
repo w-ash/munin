@@ -30,7 +30,7 @@ _SCRIPTS_DIR = _PACKAGE_DIR.parent  # scripts/
 
 # When the scripts/ directory is symlinked into a separate vault (common
 # now that this package lives in its own git repo), Path.resolve above
-# yields the physical repo path — wrong for vault operations. The
+# yields the physical repo path, which is wrong for vault operations. The
 # dispatcher exports VAULT_DIR using bash's logical pwd, which preserves
 # the symlink. Honor it when present; fall back to the script's parent
 # for direct invocations of a vault-colocated scripts/ tree.
@@ -78,7 +78,7 @@ def require_env(name: str) -> str:
     skill/script callers that consume our stdout.
 
     Scripts invoked via ``scripts/vault-tool`` inherit ``.env`` through
-    ``uv run --env-file`` — no Python-side loading needed.
+    ``uv run --env-file``; no Python-side loading needed.
     """
     val = os.environ.get(name)
     if not val:
@@ -106,19 +106,26 @@ def user_agent(client: str = "vault-tools") -> str:
     return f"{client} (mailto:{contact}) requests/{requests.__version__}"
 
 
+def find_vault_file(file_arg: str) -> Path | None:
+    """Resolve a path argument: ``VAULT / file_arg`` first (lets callers pass
+    vault-relative paths), then the raw argument as an absolute/CWD-relative
+    path. Returns None when neither exists."""
+    path = VAULT / file_arg
+    if not path.exists():
+        path = Path(file_arg)
+    return path if path.exists() else None
+
+
 def resolve_file_arg(file_arg: str) -> Path:
     """Resolve a CLI ``--file`` argument to an existing path.
 
-    Tries ``VAULT / file_arg`` first (lets callers pass vault-relative
-    paths like ``Travel/Japan26/Dining/entries/Den.md``), then the raw
-    argument as an absolute/CWD-relative path. Exits with a JSON error
-    if neither resolves — matches the rest of the package's "fail fast
-    to stdout JSON" convention for script-invoking skills.
+    Exits with a JSON error if the file doesn't resolve, matching the rest of
+    the package's "fail fast to stdout JSON" convention for script-invoking
+    skills. Callers that want their own error handling use
+    :func:`find_vault_file` directly.
     """
-    file_path = VAULT / file_arg
-    if not file_path.exists():
-        file_path = Path(file_arg)
-    if not file_path.exists():
+    file_path = find_vault_file(file_arg)
+    if file_path is None:
         print(json.dumps({"status": "error", "error": f"File not found: {file_arg}"}))
         sys.exit(1)
     return file_path
@@ -127,7 +134,7 @@ def resolve_file_arg(file_arg: str) -> Path:
 # --- Wikimedia URL helpers ---
 
 # /thumb/ is edge-cached and on a more permissive rate-limit tier than
-# full-res — auto-rewrite per Wikimedia's media-reuse guide.
+# full-res; auto-rewrite per Wikimedia's media-reuse guide.
 _WIKIMEDIA_HOST = "upload.wikimedia.org"
 _WIKIMEDIA_FULL_RES_RE = re.compile(
     r"^/wikipedia/commons/(?P<a>[0-9a-f])/(?P<ab>[0-9a-f]{2})/(?P<file>[^/]+)$",
@@ -140,7 +147,7 @@ def rewrite_wikimedia_to_thumb(url: str, width: int = WIKIMEDIA_THUMB_WIDTH) -> 
     """Rewrite full-res ``upload.wikimedia.org`` URLs to ``/thumb/.../{N}px-`` form.
 
     Pass-through for non-Wikimedia URLs and URLs already on the ``/thumb/``
-    path. SVG sources get a ``.png`` suffix on the thumb filename — Wikimedia's
+    path. SVG sources get a ``.png`` suffix on the thumb filename: Wikimedia's
     thumbor renders SVG to PNG, and Pillow can decode the result natively
     (it can't open SVG sources directly anyway).
     """
@@ -162,7 +169,7 @@ def rewrite_wikimedia_to_thumb(url: str, width: int = WIKIMEDIA_THUMB_WIDTH) -> 
 
 
 def fm_str(metadata: dict[str, object], field: str) -> str:
-    """Strips YAML quoting artifacts — frontmatter values sometimes retain
+    """Strips YAML quoting artifacts: frontmatter values sometimes retain
     surrounding double-quotes after parsing depending on the quoting style.
     """
     return str(metadata.get(field, "")).strip().strip('"')
@@ -196,7 +203,7 @@ def _match_field_line(field: str) -> tuple[str, str]:
 def _frontmatter_body(text: str) -> str | None:
     """Return the YAML between the opening and closing ``---`` fences, or None
     when ``text`` has no frontmatter block. Field scans/edits run on this region
-    only — a ``key:`` line in the note body must never be mistaken for a field."""
+    only: a ``key:`` line in the note body must never be mistaken for a field."""
     if not text.startswith("---"):
         return None
     parts = text.split("---", 2)
@@ -218,7 +225,7 @@ def _edit_frontmatter(text: str, transform: Callable[[str], str]) -> str:
 
 
 def has_field(text: str, field: str) -> bool:
-    """Whether a frontmatter field key is present — scoped to the YAML block, so
+    """Whether a frontmatter field key is present, scoped to the YAML block, so
     a matching ``key:`` line in the note body is ignored."""
     body = _frontmatter_body(text)
     if body is None:
@@ -246,7 +253,7 @@ def yaml_scalar(value: object) -> str:
 
 
 def patch_field(text: str, field: str, value: object) -> str:
-    """Upsert a frontmatter field. ``value`` is any Python scalar — it's
+    """Upsert a frontmatter field. ``value`` is any Python scalar; it's
     formatted via :func:`yaml_scalar` (ints stay bare, strings get quoted).
 
     Replaces the value if the field exists, otherwise inserts before the
@@ -280,7 +287,7 @@ def insert_field_after(
 ) -> str:
     """Insert a new frontmatter field after an existing one.
 
-    Preserves the anchor's full line — value and all — by capturing the
+    Preserves the anchor's full line (value and all) by capturing the
     entire line in the regex and re-emitting it before the new field. The
     earlier ``_match_field_line`` patterns are intended for ``patch_field``
     (replace-value semantics) and would erase the anchor's value here.
@@ -307,6 +314,47 @@ def insert_before_closing_fence(text: str, field: str, value: object) -> str:
         fm = parts[1].rstrip("\n")
         return f"---{fm}\n{field}: {yaml_scalar(value)}\n---{parts[2]}"
     return text
+
+
+def upsert_field_after(text: str, field: str, value: object, anchor: str) -> str:
+    """Upsert ``field: value``, positioned right after ``anchor`` when the anchor
+    exists.
+
+    Any existing instance of the field is dropped first (frontmatter-scoped), so
+    a re-run with a different anchor cleanly repositions the line instead of
+    leaving duplicates. Falls back to :func:`patch_field` placement (before the
+    closing fence) when the anchor is absent or is the field itself.
+    """
+
+    def strip(body: str) -> str:
+        return re.sub(
+            rf"^{re.escape(field)}:[^\n]*\n?", "", body, count=1, flags=re.MULTILINE
+        )
+
+    stripped = _edit_frontmatter(text, strip)
+    if anchor != field and has_field(stripped, anchor):
+        return insert_field_after(stripped, anchor, field, value)
+    return patch_field(stripped, field, value)
+
+
+# --- Coordinates ---
+
+# The single owner of the ``"lat, lng"`` frontmatter literal: geocode writes it
+# via format_coords, and every reader parses it via parse_coords.
+_COORD_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
+
+
+def format_coords(lat: float, lng: float) -> str:
+    """Format the canonical ``coordinates:`` value; :func:`parse_coords` reads it."""
+    return f"{lat}, {lng}"
+
+
+def parse_coords(s: str) -> tuple[float, float] | None:
+    """Parse a ``"lat, lng"`` string into floats, or None when malformed."""
+    m = _COORD_RE.match(s)
+    if m is None:
+        return None
+    return float(m.group(1)), float(m.group(2))
 
 
 # --- Body helpers ---
@@ -336,9 +384,9 @@ def add_inline_embed(text: str, image_filename: str) -> str:
 
     for i, line in enumerate(lines):
         if line.strip() == "---":
-            if not in_frontmatter:
+            if i == 0:
                 in_frontmatter = True
-            else:
+            elif in_frontmatter and fm_end_idx is None:
                 fm_end_idx = i
             continue
         if fm_end_idx is None:
@@ -372,12 +420,14 @@ def add_inline_embed(text: str, image_filename: str) -> str:
 
 
 def find_images_dir(file_path: Path) -> Path:
-    """Walk up from the file to find the trip root, return its images/ dir."""
+    """Walk up from the file to find the trip root, return its images/ dir.
+
+    Pure path computation; the file must live under Travel/ (ValueError
+    otherwise) and callers that write create the directory themselves.
+    """
     rel = file_path.relative_to(TRAVEL_DIR)
     trip_name = rel.parts[0]
-    images_dir = TRAVEL_DIR / trip_name / "images"
-    images_dir.mkdir(exist_ok=True)
-    return images_dir
+    return TRAVEL_DIR / trip_name / "images"
 
 
 def _tags_of(post: frontmatter.Post) -> list[str]:
@@ -413,7 +463,7 @@ def find_entry_files(
             try:
                 text = f.read_text(encoding="utf-8")
                 post = frontmatter.loads(text)
-            except yaml.YAMLError, OSError:
+            except (yaml.YAMLError, OSError):
                 continue
             if any(t in valid_tags for t in _tags_of(post)):
                 files.append((f, post, category, text))

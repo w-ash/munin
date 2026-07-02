@@ -30,10 +30,21 @@ foster, harness, seamless, testament, underscore, utilize, streamline, navigate,
 pivotal, innovative, cutting-edge, essential, landscape, realm, tapestry, synergy, ecosystem,
 journey, plus stock metaphors like "move the needle," "north star," and "game-changer."
 
+For conformance work, say "align," "apply," or "update" rather than "fix": bringing text in
+line with a style standard means nothing was broken.
+
 ## State the point directly
 
 Make the claim once, plainly. Drop the contrast scaffolds that pad it: "not just X, but Y," "it's
 not X, it's Y," "more than just," "not only X but also." Say what is true and stop.
+
+## Claim only what was checked
+
+Never assert verification that didn't happen. Phrases like "the comparison is earned," "the
+analogy holds," "lives up to the hype," and "well-deserved reputation" perform a check no one
+ran; give them the same swap-out treatment as the words above. State the fact and its source
+instead: if a source makes the comparison, cite it; if the framing is Ash's own shorthand,
+describe the thing itself rather than handing his framing back as third-party validation.
 
 ## Open and close on something concrete
 

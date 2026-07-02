@@ -1,6 +1,6 @@
 ---
 name: google-sheets
-description: Read and update Google Sheets from the vault toolchain via `scripts/vault-tool sheets`. Use when the user wants to read, update, append to, or sync data with a Google Sheet or spreadsheet, or pastes a docs.google.com/spreadsheets link. Writes go through a service account, so the sheet must be shared with it first.
+description: Read and update Google Sheets from the vault toolchain via `scripts/vault-tool sheets`. Use when the user wants to read, update, append to, or sync data with a Google Sheet or spreadsheet, or pastes a docs.google.com/spreadsheets link. Acts as the user's own Google account by default (no sharing needed); `--auth service` uses a shared-access service account.
 user_invocable: true
 ---
 
@@ -10,19 +10,22 @@ Read and write Google Sheets over the Sheets REST API through the `sheets` modul
 of the vault toolchain. Every command prints a JSON envelope and runs read-only
 unless `--write` is passed.
 
-## Access (do this first)
+## Auth (two modes)
 
-The tool authenticates as a service account, not as Ash. A sheet is reachable only
-once it has been shared with that account; otherwise every call returns 403. Share
-the sheet (or its parent folder) with this address — **Editor** to write, **Viewer**
-to read only:
+The same two modes as the `google-docs` skill; `.claude/skills/google-docs/SKILL.md`
+(section "Auth") is the canonical copy with the full detail: consent flow, token
+storage, and the service account's share-target address.
 
-```
-vault-sheets@vault-492101.iam.gserviceaccount.com
-```
+- **Default: `--auth oauth`** acts as the user's own Google account. It reads, edits,
+  and **creates** any sheet the user can see, with no sharing step, after a one-time
+  consent (`scripts/vault-tool sheets auth-login`, shared with the `docs` login).
+- **Opt-in: `--auth service`** acts as the sandboxed service account (least privilege,
+  unattended-stable; good for scheduled jobs). The sheet (or its parent folder) must be
+  shared with the account's address (see the docs skill): **Editor** to write,
+  **Viewer** to read. A 403 (exit 4) in this mode means the sheet isn't shared yet;
+  share it or drop the flag to act as the user.
 
-A call that exits with code 4 (permission) means the sheet isn't shared yet. Ask
-Ash to share it with that address.
+`--auth` works on every command.
 
 ## Commands
 
@@ -70,9 +73,9 @@ a number, `=A1+1` a formula). Pass `--value-input RAW` to store text verbatim.
 
 `read-range`, `read-table`, and `batch-get` take `--value-render`:
 
-- `FORMATTED_VALUE` (default) — the display string, e.g. `"$1,240"`.
-- `UNFORMATTED_VALUE` — the underlying value, e.g. `1240` (no currency symbol or comma).
-- `FORMULA` — the formula text for formula cells, e.g. `=B2*1.1`.
+- `FORMATTED_VALUE` (default): the display string, e.g. `"$1,240"`.
+- `UNFORMATTED_VALUE`: the underlying value, e.g. `1240` (no currency symbol or comma).
+- `FORMULA`: the formula text for formula cells, e.g. `=B2*1.1`.
 
 ```bash
 scripts/vault-tool sheets read-range --spreadsheet <id> --range "Budget!B2" --value-render FORMULA
@@ -101,15 +104,13 @@ scripts/vault-tool sheets delete-sheet --spreadsheet <id> --sheet "Scratch" --wr
 scripts/vault-tool sheets create --title "New Budget" --write
 ```
 
-Returns the new `spreadsheetId` and `spreadsheetUrl`. **Caveat:** the new spreadsheet
-is owned by the service account and lives in *its* Drive, so the returned URL won't
-open for Ash until the sheet is shared with his Google account. The toolchain can't
-do that sharing itself (it has no Drive-API access), so `create` is mainly useful for
-machine-to-machine sheets the service account keeps reading and writing. To get a
-human-editable sheet, create it in the Google Sheets UI and share it with the service
-account instead.
+Returns the new `spreadsheetId` and `spreadsheetUrl`. Under the default `--auth oauth`
+the sheet is owned by the user and the URL opens directly (no sharing step). **Only under
+`--auth service`** is the new sheet owned by the service account in *its* Drive, so the
+URL won't open for the user until it's shared with their account (which the toolchain can't
+do itself); that mode is for machine-to-machine sheets the service account keeps editing.
 
-There is no command to *list which spreadsheets exist* — the Sheets API has no such
+There is no command to *list which spreadsheets exist*: the Sheets API has no such
 method (it needs the Drive API). `list-sheets` lists the tabs within one known
 spreadsheet, not spreadsheets across a Drive.
 
@@ -125,7 +126,7 @@ Flags: `--match-case`, `--match-entire-cell` (only when the whole cell equals `-
 `--regex` (treat `--find` as a regular expression), `--include-formulas` (also rewrite
 formula text). `--write` returns `occurrencesChanged`. The Sheets API has **no preview
 mode** for find-replace, so the dry-run can only echo the intent under `wouldReplace`, not
-a match count — run with `--write` to apply. (Scoping to an A1 `--range` isn't supported
+a match count; run with `--write` to apply. (Scoping to an A1 `--range` isn't supported
 yet; the API wants a grid range, not A1.)
 
 ## Write safely
@@ -136,11 +137,11 @@ The mutating commands (`append`, `set-range`, `update-key`, `batch`, `clear`,
 `wouldWrite` / `wouldAppend` / `updates` / `operations` / `wouldClear` / `wouldDelete` /
 `wouldCreate` / `wouldReplace`, or the resolved `sheetId` + `from`/`to` for sheet
 management) and change nothing. Run the
-command once without `--write`, show Ash the preview, then re-run the same command with
+command once without `--write`, show the user the preview, then re-run the same command with
 `--write` added. Writes hit a live, shared sheet, so confirm before applying.
 
 `delete-sheet` is the one destructive command (a removed tab can't be recovered through
-this tool); its dry-run names the sheet under `wouldDelete` — read it back before adding
+this tool); its dry-run names the sheet under `wouldDelete`, so read it back before adding
 `--write`.
 
 `update-key` writes only the cells named in `--set` (one cell per column), so formulas
@@ -152,9 +153,9 @@ exact column→value changes.
 
 `read-table` and `update-key` assume the header is row 1. When it isn't:
 
-- `--header-row N` — the 1-based row where the header starts (e.g. a sheet with notes
+- `--header-row N`: the 1-based row where the header starts (e.g. a sheet with notes
   above the table).
-- `--header-rows N` — how many rows the header spans. Stacked rows are forward-filled
+- `--header-rows N`: how many rows the header spans. Stacked rows are forward-filled
   (a merged group label spreads across its columns) and joined with a space, so a
   "2026" label over "Jan" becomes the column key `2026 Jan`.
 
@@ -171,13 +172,13 @@ scripts/vault-tool sheets update-key --spreadsheet <id> --sheet "Plan" --header-
 To enrich rows (e.g. fill blank cells from research): `read-table` once, keep the
 records whose target cell is empty, then write the new values in one `batch`, using
 each record's `row` to build the cell ref (column H → `'Sheet'!H{row}`). Prefer this
-over calling `update-key` per row — it reads once, writes atomically, and only fills
+over calling `update-key` per row: it reads once, writes atomically, and only fills
 the cells you set. Re-running is safe because you only touch still-empty cells.
 
 Build the `row`-based cell refs from a **fresh** `read-table` taken immediately before the
-write — see the next section for why row numbers go stale.
+write; see the next section for why row numbers go stale.
 
-## Robust writes on shared, human-edited sheets
+## Safe writes on shared, human-edited sheets
 
 Collaborators reorder rows, insert columns, and rename things between sessions, so anything
 keyed to a fixed position drifts. Defend every write:
@@ -194,8 +195,8 @@ keyed to a fixed position drifts. Defend every write:
   starting at the first non-empty column, writes the row shifted one column right, and may
   insert mid-sheet. Use `set-range`/`batch` with explicit ranges (`'Sheet'!A{row}:J{row}`).
 - **For durable cross-tab links, give rows a frozen ID column.** A value-based ID moves with
-  its row on any sort and survives renames, so joins between tabs hold. Use a readable slug —
-  `lower("<col1> <col2>")` with each run of non-`[a-z0-9]` replaced by `-`, then trimmed —
+  its row on any sort and survives renames, so joins between tabs hold. Use a readable slug
+  (`lower("<col1> <col2>")` with each run of non-`[a-z0-9]` replaced by `-`, then trimmed),
   **assigned once and never recomputed** (a later rename keeps the original ID). Join other
   tabs on that ID, and assign IDs to any blank-ID rows before a pass. Prefer this over Google
   Developer Metadata, which is documented to follow rows on *insertion* but is silent on
@@ -208,16 +209,19 @@ keyed to a fixed position drifts. Defend every write:
 Each command prints `{ok, cmd, spreadsheetId, result}`. On failure it prints
 `{ok: false, ..., error}` and exits non-zero:
 
-- `2` — bad input (malformed JSON, key column or row not found)
-- `3` — auth (the service-account key is missing or invalid)
-- `4` — permission (the sheet isn't shared with the service account)
-- `5` — other API error
+- `2`: bad input (malformed JSON, key column or row not found)
+- `3`: auth (missing or invalid credential for the active mode: no stored OAuth token
+  under the default, so run `auth-login`; a missing or bad key under `--auth service`)
+- `4`: permission (the acting identity can't reach the sheet: the user's own account
+  under the default; under `--auth service`, the sheet isn't shared with the service account)
+- `5`: other API error
 
 When the failure carries a Google error body, the envelope also includes the parsed
 `status` (e.g. `PERMISSION_DENIED`, `RESOURCE_EXHAUSTED`) and `code`, and the `error`
-string is `"<STATUS>: <message>"` rather than a raw HTTP error — so a 403 reads as
+string is `"<STATUS>: <message>"` rather than a raw HTTP error, so a 403 reads as
 `PERMISSION_DENIED` (share the sheet) and a quota hit as `RESOURCE_EXHAUSTED` (the tool
 already retries 429/5xx with backoff, honoring a `Retry-After` header when present).
 
-Credential storage and setup: `scripts/.env` (`GOOGLE_SHEETS_SA_JSON`) and
-`~/.config/gcp/README.md`.
+Credential storage and setup: `scripts/.env` (`GOOGLE_OAUTH_CLIENT_JSON` and
+`GOOGLE_OAUTH_TOKEN_JSON` for the default OAuth-user mode; `GOOGLE_SHEETS_SA_JSON`
+for `--auth service`) and `~/.config/gcp/README.md`.

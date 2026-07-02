@@ -16,11 +16,21 @@
 # instead of being silently cut off. Because template content lives inside .sheet with no body
 # margins, the screen-document height only exceeds the page when true content already does.
 #
-# macOS. Uses any Chromium browser (Brave / Chrome / Chromium / Edge) plus `sips`.
+# macOS. Uses any Chromium browser (Brave / Chrome / Chromium / Edge), `sips`, and python3.
 
 set -euo pipefail
 
+# Fail with a clear message rather than a bare `set -e` crash mid-run: python3 is
+# used throughout (geometry parsing, probe injection, PDF page count, verdict math)
+# and stock macOS doesn't guarantee it.
+command -v python3 >/dev/null || { echo "check_print.sh needs python3 on PATH" >&2; exit 3; }
+
+# Virtual-time budget for the headless render: long enough for @import web fonts
+# to download and apply before heights are measured (see reference.md on fonts).
 FONT_LOAD_MS=5000
+# Screen-screenshot geometry: 900x1180 CSS px approximates the sheet's on-screen
+# aspect at 96dpi, and 1.5x device scale keeps the PNG legible for eyeballing.
+# These only affect the inspection PNG, never the PASS/FAIL math.
 SCREEN_W=900; SCREEN_H=1180; SCALE=1.5
 
 HTML="${1:-}"
@@ -44,7 +54,8 @@ mar = re.search(r'margin:\s*([0-9.]+)\s*in', block)
 margin = float(mar.group(1)) if mar else 0.4
 size = re.search(r'size:\s*([a-zA-Z0-9]+)', block)
 paper = size.group(1).lower() if size else 'letter'
-W, H = (8.27, 11.69) if paper == 'a4' else (8.5, 11.0)
+# Only page HEIGHT is gated here; width overrun surfaces via the print page count.
+H = 11.69 if paper == 'a4' else 11.0
 print(f"{margin} {H} {paper} {1 if m else 0}")
 PY
 )"

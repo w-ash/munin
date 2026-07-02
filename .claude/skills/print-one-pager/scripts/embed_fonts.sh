@@ -24,10 +24,14 @@ fi
 python3 - "$URL" "$SUBSET" <<'PY'
 import re, sys, base64, urllib.request
 url, subset = sys.argv[1], sys.argv[2]
+# Any modern-Chrome UA works; Google Fonts only needs it to serve woff2 (the
+# exact version number is arbitrary and doesn't need updating).
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
 def fetch(u, binary=False):
     req = urllib.request.Request(u, headers={'User-Agent': UA})
+    # 30s per request: font files are ~15-50 KB each, so this only trips on a
+    # genuinely stuck connection, not a slow one.
     data = urllib.request.urlopen(req, timeout=30).read()
     return data if binary else data.decode('utf-8')
 
@@ -66,6 +70,14 @@ for sub, body in parts:
         % (fam.group(1), st.group(1) if st else 'normal', wt.group(1) if wt else '400',
            b64, ("unicode-range:%s;" % rng.group(1).strip()) if rng else ''))
 
+# Never emit an empty-but-successful result: a caller doing `> fonts.css` would
+# get a blank stylesheet and only notice when the fonts silently don't render.
+if kept == 0:
+    sys.stderr.write(
+        "ERROR: no font faces embedded (subset %r matched nothing, or every "
+        "download failed). Try subset 'all', and check the warnings above.\n" % subset
+    )
+    sys.exit(5)
 sys.stdout.write('\n'.join(out) + '\n')
 sys.stderr.write("embedded %d face(s) [%s], %d KB of fonts, %d KB of CSS.\n"
                  % (kept, subset, total // 1024, len('\n'.join(out)) // 1024))

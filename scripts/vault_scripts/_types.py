@@ -2,10 +2,10 @@
 internal dict shapes, dataclasses for config.
 
 Design split:
-- **Pydantic** — external data at the boundary (API responses). Catches
+- **Pydantic**: external data at the boundary (API responses). Catches
   schema drift at runtime.
-- **TypedDict** — dict shapes we produce internally. Typed access, no runtime cost.
-- **@dataclass** — config and intermediate structures.
+- **TypedDict**: dict shapes we produce internally. Typed access, no runtime cost.
+- **@dataclass**: config and intermediate structures.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, RootModel
 
 
 class _ExtraIgnore(BaseModel):
-    """Base with tolerant parsing — APIs evolve, we ignore unknown keys."""
+    """Base with tolerant parsing: APIs evolve, we ignore unknown keys."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -94,6 +94,59 @@ class NominatimResponse(RootModel[list[NominatimResult]]):
     """Nominatim returns a JSON array, not an envelope object."""
 
 
+# --- Open-Meteo (geocoding + daily forecast) ---
+
+
+class OpenMeteoPlace(_ExtraIgnore):
+    """One match from the Open-Meteo geocoding API (``/v1/search``)."""
+
+    name: str = ""
+    latitude: float
+    longitude: float
+    timezone: str = ""
+    country_code: str = ""
+    admin1: str = ""
+
+
+class OpenMeteoGeocodingResponse(_ExtraIgnore):
+    results: list[OpenMeteoPlace] = []
+
+
+class OpenMeteoDaily(_ExtraIgnore):
+    """Parallel per-date arrays from the forecast ``daily`` block. Values can
+    be null for dates the model has no data for, so every array is Optional
+    per-entry; consumers skip days whose core values are missing."""
+
+    time: list[str] = []
+    weather_code: list[int | None] = []
+    temperature_2m_max: list[float | None] = []
+    temperature_2m_min: list[float | None] = []
+    precipitation_sum: list[float | None] = []
+    precipitation_probability_max: list[int | None] = []
+    wind_speed_10m_max: list[float | None] = []
+
+
+class OpenMeteoForecastResponse(_ExtraIgnore):
+    timezone: str = ""
+    daily: OpenMeteoDaily
+
+
+class WeatherDay(TypedDict):
+    """One formatted forecast day produced by the ``weather`` module."""
+
+    date: str
+    code: int
+    emoji: str
+    label: str
+    high_f: int
+    low_f: int
+    rain_pct: int | None
+    precip_in: float | None
+    wind_mph: float | None
+    notes: list[str]
+    line: str
+
+
 # --- Sheets API: OAuth token + service-account key ---
 
 
@@ -112,7 +165,7 @@ class AccessTokenResponse(_ExtraIgnore):
 
 class ServiceAccountKey(_ExtraIgnore):
     """The subset of a service-account JSON key file we need to mint a JWT.
-    The key's token_uri is ignored — it is the same OAuth endpoint for every
+    The key's token_uri is ignored; it is the same OAuth endpoint for every
     Google service account (see ``_google.OAUTH_ENDPOINT``)."""
 
     client_email: str
@@ -129,7 +182,7 @@ class OAuthInstalledClient(_ExtraIgnore):
     client_id: str
     client_secret: str
     auth_uri: str = "https://accounts.google.com/o/oauth2/auth"
-    # The default token endpoint, not a secret — S105 is a false positive here.
+    # The default token endpoint, not a secret; S105 is a false positive here.
     token_uri: str = "https://oauth2.googleapis.com/token"  # noqa: S105
     redirect_uris: list[str] = []
 
@@ -158,7 +211,7 @@ class OAuthToken(_ExtraIgnore):
 # a string, but UNFORMATTED_VALUE and FORMULA reads return raw numbers/booleans,
 # so the value grid is union-typed. Callers that need string semantics (the
 # header/key logic) stringify first. Rows may be short (the API drops trailing
-# empty cells) — callers pad.
+# empty cells); callers pad.
 
 SheetCell = str | int | float | bool | None
 
@@ -280,7 +333,7 @@ class SpreadsheetProperties(_ExtraIgnore):
 
 
 class CreateSpreadsheetResponse(_ExtraIgnore):
-    """Response from spreadsheets.create — the new spreadsheet's id and URL."""
+    """Response from spreadsheets.create: the new spreadsheet's id and URL."""
 
     spreadsheetId: str = ""
     spreadsheetUrl: str = ""
@@ -501,9 +554,9 @@ class _GeoResultBase(TypedDict):
 class GeoResult(_GeoResultBase, total=False):
     """Base fields always present; ``enrichment`` only when ``--enrich``,
     ``station`` only when ``--stations``. ``url_validation_failed`` is set
-    when the URL pipeline refused to emit a ``google_maps_url`` — closed
+    when the URL pipeline refused to emit a ``google_maps_url`` (closed
     venue per ``businessStatus``, or a Google match that returned no
-    ``googleMapsUri`` — so callers can surface the issue to the user instead
+    ``googleMapsUri``), so callers can surface the issue to the user instead
     of silently dropping the field. (A Nominatim fallback geocodes fine
     without a Google URL and is not flagged.)
     """
@@ -524,9 +577,9 @@ class GeocodeOptions:
     so the slow Overpass path can be opted into separately from the fast
     Google path:
 
-    - ``stations`` — Google only: ``nearest_station`` + ``walk_time_to_station``.
+    - ``stations`` (Google only): ``nearest_station`` + ``walk_time_to_station``.
       Fast and stable.
-    - ``lines`` — Overpass/OSM only: ``station_lines``. Slow (1.1s throttle,
+    - ``lines`` (Overpass/OSM only): ``station_lines``. Slow (1.1s throttle,
       frequent 504s) and optional. Requires either ``stations=True`` or a
       pre-existing ``nearest_station`` anchor.
     """

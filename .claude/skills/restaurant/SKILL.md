@@ -1,6 +1,6 @@
 ---
 name: restaurant
-description: Log a restaurant visit or add a new restaurant to track
+description: Log a restaurant visit or add a new restaurant to track. Use when the user mentions eating out, a meal they had, or a place they want to try.
 user_invocable: true
 ---
 
@@ -12,7 +12,7 @@ Log a restaurant visit or add a new restaurant to the tracker. Can also be trigg
 
 1. **Parse the restaurant name** from `$ARGUMENTS` or the user's message. If unclear, ask.
 
-2. **Check if a note exists** — run `obsidian search query="$NAME" format=json` and check `Restaurants/entries/` for a match.
+2. **Check if a note exists**: run `obsidian search query="$NAME" format=json` and check `Restaurants/entries/` for a match.
 
 3. **If the note doesn't exist**, create it:
    - **Search the web** for the restaurant to get: cuisine, neighborhood, city, address, hours, price range, website, whether reservations are needed.
@@ -20,7 +20,7 @@ Log a restaurant visit or add a new restaurant to the tracker. Can also be trigg
    - Fill in all properties from web research. Leave `rating`, `vibe`, and `rec-for-friends` for the user.
    - Add practical details (address, hours) to the Notes section.
    - **Geocode** the file: `scripts/vault-tool geocode lookup --file "Restaurants/entries/$NAME.md" --write --enrich`
-     (For local restaurants, `--enrich` is reliable — Google hours are generally accurate domestically. Verify hours against the website for international venues.)
+     (For local restaurants, `--enrich` is reliable; Google hours are generally accurate domestically. Verify hours against the website for international venues.)
 
 4. **If the note exists**, read it to see current state.
 
@@ -36,7 +36,7 @@ Log a restaurant visit or add a new restaurant to the tracker. Can also be trigg
 
 7. **Proactively connect context** (per CLAUDE.md rule 6):
    - Check if people mentioned have People/ notes. If not, ask if the user wants to create them.
-   - If the restaurant relates to a trip (e.g. Japan 2026), note the connection.
+   - If the restaurant relates to a trip (a `Travel/<Trip>/` folder exists for it), note the connection.
 
 ## File operations
 

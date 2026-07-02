@@ -7,7 +7,7 @@ operation, plus pure builders for the ``batchUpdate`` request objects.
 A Google Doc is a tree of structural elements addressed by UTF-16 index, not a
 grid. The read path leans on Drive's native Markdown export (one call, no index
 math); in-place edits go through ``documents.batchUpdate``. Owned-file creation
-(import, copy) needs OAuth-user auth — see :mod:`vault_scripts._google`.
+(import, copy) needs OAuth-user auth; see :mod:`vault_scripts._google`.
 
 Share each target doc with the service account's ``client_email`` (Editor to
 write, Viewer to read), or service-account calls come back 403.
@@ -21,7 +21,7 @@ from urllib.parse import urlencode
 
 from pydantic import BaseModel
 
-from vault_scripts._google import AuthMode, authed_request, get_access_token
+from vault_scripts._google import authed_request, current_auth, get_access_token
 from vault_scripts._retry import (
     google_retry,
     request_image_bytes,
@@ -54,13 +54,13 @@ def _docs_request[M: BaseModel](
     url: str,
     *,
     response_model: type[M],
-    auth: AuthMode = "service",
     params: dict[str, str] | None = None,
     json: object | None = None,
     idempotent: bool = True,
 ) -> M:
     """Issue an authenticated Docs/Drive JSON call. Binds the shared transport to
-    the Docs + Drive scopes and the Docs SA env lookup order. Pass
+    the Docs + Drive scopes, the Docs SA env lookup order, and the invocation's
+    auth mode (:func:`current_auth`, matching the Sheets adapter). Pass
     ``idempotent=False`` for document batchUpdate and resource create/copy so a
     retried transport error can't apply the edit or create the file twice."""
     return authed_request(
@@ -68,7 +68,7 @@ def _docs_request[M: BaseModel](
         url,
         response_model=response_model,
         scopes=DOCS_DRIVE_SCOPES,
-        auth=auth,
+        auth=current_auth(),
         sa_env=DOCS_SA_ENV,
         params=params,
         json=json,
@@ -79,20 +79,18 @@ def _docs_request[M: BaseModel](
 # --- Read ---
 
 
-def get_document(document_id: str, *, auth: AuthMode = "service") -> DocumentModel:
+def get_document(document_id: str) -> DocumentModel:
     """Read a document (``documents.get``). includeTabsContent is left unset so the
-    legacy ``body`` is populated — the index space append/insert/delete address."""
+    legacy ``body`` is populated: the index space append/insert/delete address."""
     return _docs_request(
-        "GET", f"{DOCS_BASE}/{document_id}", response_model=DocumentModel, auth=auth
+        "GET", f"{DOCS_BASE}/{document_id}", response_model=DocumentModel
     )
 
 
-def get_document_raw(
-    document_id: str, *, auth: AuthMode = "service"
-) -> DocsRawDocument:
+def get_document_raw(document_id: str) -> DocsRawDocument:
     """Read the full untyped ``documents.get`` response (the raw-json escape hatch)."""
     return _docs_request(
-        "GET", f"{DOCS_BASE}/{document_id}", response_model=DocsRawDocument, auth=auth
+        "GET", f"{DOCS_BASE}/{document_id}", response_model=DocsRawDocument
     )
 
 
@@ -104,11 +102,11 @@ def _export_bytes(url: str, token: str) -> bytes:
     )
 
 
-def export_markdown(document_id: str, *, auth: AuthMode = "service") -> str:
+def export_markdown(document_id: str) -> str:
     """Export a doc to Markdown via Drive ``files.export``. One call, no index math,
     far more token-efficient than ``documents.get``. Drive caps export at 10 MB
     (a 403 ``exportSizeLimitExceeded`` above it)."""
-    token = get_access_token(DOCS_DRIVE_SCOPES, auth=auth, sa_env=DOCS_SA_ENV)
+    token = get_access_token(DOCS_DRIVE_SCOPES, auth=current_auth(), sa_env=DOCS_SA_ENV)
     url = f"{DRIVE_BASE}/files/{document_id}/export?{urlencode({'mimeType': MARKDOWN_MIMETYPE})}"
     return _export_bytes(url, token).decode("utf-8")
 
@@ -122,7 +120,6 @@ def list_docs(
     query: str | None,
     *,
     page_token: str | None = None,
-    auth: AuthMode = "service",
 ) -> DriveFileList:
     """One page of Google Docs from Drive ``files.list`` (the Docs API can't list).
     ``query`` filters by name substring; the caller loops ``nextPageToken``."""
@@ -142,12 +139,11 @@ def list_docs(
         f"{DRIVE_BASE}/files",
         response_model=DriveFileList,
         params=params,
-        auth=auth,
     )
 
 
 def body_end_index(doc: DocumentModel) -> int:
-    """The body's end index (exclusive) — one past the last insertable position;
+    """The body's end index (exclusive), one past the last insertable position;
     an empty doc starts at 1.
 
     Not itself a valid insert index: the Docs API rejects an ``insertText`` at
@@ -161,7 +157,7 @@ def body_end_index(doc: DocumentModel) -> int:
 
 
 def text_index_map(doc: DocumentModel) -> list[dict[str, object]]:
-    """Flatten the body to ``{start, end, text}`` per text run — a practical index
+    """Flatten the body to ``{start, end, text}`` per text run: a practical index
     map for deciding where to insert, delete, or style."""
     if doc.body is None:
         return []
@@ -182,12 +178,11 @@ def batch_update(
     requests: list[dict[str, object]],
     *,
     required_revision_id: str | None = None,
-    auth: AuthMode = "service",
 ) -> DocsBatchUpdateResponse:
     """Apply an ordered list of requests atomically (``documents.batchUpdate``).
 
     When ``required_revision_id`` is set, the write is rejected (400
-    INVALID_ARGUMENT) if the doc changed since that revision — so index-based
+    INVALID_ARGUMENT) if the doc changed since that revision, so index-based
     edits computed from a ``get`` can't land on shifted content.
     """
     body: dict[str, object] = {"requests": requests}
@@ -198,7 +193,6 @@ def batch_update(
         f"{DOCS_BASE}/{document_id}:batchUpdate",
         response_model=DocsBatchUpdateResponse,
         json=body,
-        auth=auth,
         idempotent=False,
     )
 
@@ -272,7 +266,7 @@ def style_text_request(
 # --- Owned-file creation (needs OAuth-user auth; the service account can't own files) ---
 
 
-def create_document(title: str, *, auth: AuthMode = "oauth") -> DocumentModel:
+def create_document(title: str) -> DocumentModel:
     """Create an empty document (``documents.create``); body content is added via
     batch_update afterward. Needs an identity that can own files (OAuth user)."""
     return _docs_request(
@@ -280,19 +274,17 @@ def create_document(title: str, *, auth: AuthMode = "oauth") -> DocumentModel:
         DOCS_BASE,
         response_model=DocumentModel,
         json={"title": title},
-        auth=auth,
         idempotent=False,
     )
 
 
-def copy_file(file_id: str, name: str, *, auth: AuthMode = "oauth") -> DriveFile:
-    """Copy a Drive file (``files.copy``) — the template primitive. Needs OAuth user."""
+def copy_file(file_id: str, name: str) -> DriveFile:
+    """Copy a Drive file (``files.copy``): the template primitive. Needs OAuth user."""
     return _docs_request(
         "POST",
         f"{DRIVE_BASE}/files/{file_id}/copy",
         response_model=DriveFile,
         json={"name": name},
-        auth=auth,
         idempotent=False,
     )
 
@@ -351,12 +343,11 @@ def import_markdown(
     md_bytes: bytes,
     *,
     folder: str | None = None,
-    auth: AuthMode = "oauth",
 ) -> DriveFile:
     """Create a Google Doc from Markdown via Drive's native importer (upload the
-    ``.md`` with a Docs target mimeType). Creates an owned file — needs OAuth user.
+    ``.md`` with a Docs target mimeType). Creates an owned file; needs OAuth user.
     Drive's importer brings images through as base64; rewrite those separately."""
-    token = get_access_token(DOCS_DRIVE_SCOPES, auth=auth, sa_env=DOCS_SA_ENV)
+    token = get_access_token(DOCS_DRIVE_SCOPES, auth=current_auth(), sa_env=DOCS_SA_ENV)
     metadata: dict[str, object] = {"name": name, "mimeType": DOC_MIMETYPE}
     if folder:
         metadata["parents"] = [folder]

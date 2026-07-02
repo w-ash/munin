@@ -49,7 +49,7 @@ Full reference: `obsidian:obsidian-cli` skill.
 - `People/`: People.base · `Pets/`: Pets.base
 - `Restaurants/`: All Restaurants.base · `Shops/`: All Shops.base
 - `Ontology/`: Entries.base, Sources.base
-- `Travel/Japan26/`: Destinations, Experiences, Dining, Shopping comparison tables
+- `Travel/<Trip>/`: per-trip Destinations, Experiences, Dining, Shopping comparison tables
 
 ## Web Search vs Defuddle
 

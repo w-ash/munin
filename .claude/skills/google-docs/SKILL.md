@@ -1,6 +1,6 @@
 ---
 name: google-docs
-description: Read and edit Google Docs from the vault toolchain via `scripts/vault-tool docs`. Use when the user wants to export a Doc to Markdown, edit a Doc's text, fill a template, create a Doc from a note, or pastes a docs.google.com/document link. Reads and in-place edits go through a service account (share the doc with it first); creating new Docs needs the one-time OAuth login.
+description: Read and edit Google Docs from the vault toolchain via `scripts/vault-tool docs`. Use when the user wants to export a Doc to Markdown, edit a Doc's text, fill a template, create a Doc from a note, or pastes a docs.google.com/document link. Acts as the user's own Google account by default (no sharing needed, after a one-time OAuth login); `--auth service` uses a shared-access service account.
 user_invocable: true
 ---
 
@@ -11,33 +11,33 @@ module of the vault toolchain. Every command prints a JSON envelope and runs
 read-only unless `--write` is passed. It shares its auth, retry, and transport
 with `/google-sheets` (the `_google` seam).
 
-## Access (do this first)
+## Auth (two modes)
 
-In `--auth service` mode (the default) the tool authenticates as a service
-account, not as Ash. A doc is reachable only once it has been shared with that
-account; otherwise every call returns 403. Share the doc (or its parent folder)
-with this address, **Editor** to write, **Viewer** to read only:
-
-```
-vault-sheets@vault-492101.iam.gserviceaccount.com
-```
-
-A call that exits with code 4 (permission) means the doc isn't shared yet. Ask
-Ash to share it with that address.
-
-## Auth modes
-
-- `--auth service` (default): the service account. Reads and in-place edits of
-  shared docs. Cannot create or own files.
-- `--auth oauth`: acts as Ash, so it can own files. Needed for `create` and
-  `template`. Run the one-time consent first:
+**Default: `--auth oauth`** acts as the user's own Google account. It reads, edits, and
+**creates** any doc the user can see, with no sharing step. It needs a one-time consent:
 
 ```bash
 scripts/vault-tool docs auth-login
 ```
 
-This opens a browser, asks Ash to approve, and stores a refresh token at
-`~/.config/gcp/docs-oauth.json`. After that, `--auth oauth` runs unattended.
+This opens a browser, asks the user to approve, and stores a refresh token at
+`~/.config/gcp/docs-oauth.json` (shared with the `sheets` login; one login covers both).
+After that, `--auth oauth` runs unattended.
+
+**Opt-in: `--auth service`** acts as the sandboxed service account (least privilege,
+unattended-stable). It reads and in-place edits docs shared with it, but cannot create or
+own files. A doc is reachable only once it has been shared with this address (**Editor**
+to write, **Viewer** to read):
+
+```
+vault-sheets@vault-492101.iam.gserviceaccount.com
+```
+
+(If that address rotates, the current one is in the key file named by `GOOGLE_DOCS_SA_JSON` /
+`GOOGLE_SHEETS_SA_JSON` in `scripts/.env`; see `~/.config/gcp/README.md`.)
+
+A 403 (exit code 4) under `--auth service` means the doc isn't shared yet; either share it
+with that address or drop the flag to act as the user.
 
 ## Read commands
 
@@ -50,7 +50,7 @@ scripts/vault-tool docs export <id|url>
 # Export straight to a vault file
 scripts/vault-tool docs export <id> --out "Work/Notes/spec.md"
 
-# Body as a {start, end, text} index map plus title/revisionId/endIndex —
+# Body as a {start, end, text} index map plus title/revisionId/endIndex:
 # the practical way to find an index for insert/delete/style
 scripts/vault-tool docs get <id>
 
@@ -73,7 +73,9 @@ when you need exact indexes for surgical edits.
 
 ## In-place write commands
 
-These edit a doc the service account can already reach. All default to a dry-run
+These edit any doc the acting identity can reach: the user's own account under the
+default `--auth oauth`, or the service account's shared docs under `--auth service`.
+All default to a dry-run
 and need `--write`. Indexes are UTF-16 code units; **every insert or delete shifts
 later indexes**, so edit back to front when you stack edits, and prefer
 `append-text` (no index) or `replace-all` (text match) when you can.
@@ -92,7 +94,7 @@ scripts/vault-tool docs delete-range <id> --start 25 --end 30 --write
 scripts/vault-tool docs style-text <id> --start 1 --end 12 --bold --link "https://x" --write
 
 # Replace every occurrence of a string (the templating / mail-merge primitive)
-scripts/vault-tool docs replace-all <id> --find "{{name}}" --replace "Ash" --write
+scripts/vault-tool docs replace-all <id> --find "{{name}}" --replace "Jordan" --write
 
 # The long tail: a raw list of batchUpdate requests (tables, bullets, headers, ...)
 scripts/vault-tool docs batch <id> --requests '[{"insertTable":{"rows":2,"columns":2,"endOfSegmentLocation":{}}}]' --write
@@ -120,8 +122,8 @@ Owned-file creation can't run as the service account, so these need `--auth oaut
 scripts/vault-tool docs create --from "Work/Notes/spec.md" --title "Q3 Spec" --auth oauth --write
 
 # Copy a template doc and fill its placeholders, then return the new doc
-scripts/vault-tool docs template --template-id <id> --title "Offer — Ash" \
-  --replace "{{name}}=Ash" --replace "{{city}}=Seattle" --auth oauth --write
+scripts/vault-tool docs template --template-id <id> --title "Offer - Jordan" \
+  --replace "{{name}}=Jordan" --replace "{{city}}=Seattle" --write
 ```
 
 `--replace FIND=VALUE` is repeatable; `FIND` is the literal text to match, so
@@ -140,7 +142,7 @@ beyond what Markdown carries, build the edit with `batch`. Drive's `export` caps
 The mutating commands (`append-text`, `insert-text`, `delete-range`, `style-text`,
 `replace-all`, `batch`, `create`, `template`) print what they *would* do under a
 `dryRun` key and change nothing until `--write`. Run once without `--write`, show
-Ash the preview, then re-run with `--write`. Writes hit a live, shared doc, so
+the user the preview, then re-run with `--write`. Writes hit a live, shared doc, so
 confirm before applying.
 
 ## Output and exit codes
@@ -148,10 +150,12 @@ confirm before applying.
 Each command prints `{ok, cmd, documentId, result}`. On failure it prints
 `{ok: false, ..., error}` and exits non-zero:
 
-- `2` — bad input (malformed JSON, missing argument, wrong auth mode for `create`)
-- `3` — auth (the service-account key or OAuth token is missing or invalid)
-- `4` — permission (the doc isn't shared with the service account)
-- `5` — other API error
+- `2`: bad input (malformed JSON, missing argument, wrong auth mode for `create`)
+- `3`: auth (missing or invalid credential for the active mode: no stored OAuth token
+  under the default, so run `auth-login`; a missing or bad key under `--auth service`)
+- `4`: permission (the acting identity can't reach the doc: the user's own account
+  under the default; under `--auth service`, the doc isn't shared with the service account)
+- `5`: other API error
 
 When Google returns a structured error body, the envelope also carries the parsed
 `status` (e.g. `PERMISSION_DENIED`, `INVALID_ARGUMENT` for a stale

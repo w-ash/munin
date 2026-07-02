@@ -91,8 +91,8 @@ the file), prints PASS/FAIL per signal with the headroom figure, and emits a pri
 PNG to inspect. That is the canonical tool; prefer it.
 
 Fallback, only if the script cannot run (no Chromium browser, or you are reproducing one signal by
-hand). Brave is at `/Applications/Brave Browser.app/Contents/MacOS/Brave Browser` (Chrome is not
-installed; Chromium/Edge also work). `--virtual-time-budget=5000` lets `@import` fonts load first.
+hand). Use any Chromium binary under `/Applications` (Brave / Chrome / Chromium / Edge; the same
+candidates check_print.sh probes). `--virtual-time-budget=5000` lets `@import` fonts load first.
 - Page count: `--print-to-pdf=/tmp/out.pdf`, then count `/Type /Page` objects in the bytes (fall
   back to the last `/Count` if those are compressed).
 - Visual: `sips -s format png /tmp/out.pdf --out /tmp/print.png`, and a screen screenshot with

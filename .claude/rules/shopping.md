@@ -8,8 +8,8 @@ paths:
 
 Trip shopping files in `Travel/<Trip>/Shopping/entries/` use the `shopping-option` tag. Two modes:
 
-1. **Experience shopping** — stores worth visiting for the spectacle (flagship Tokyu Hands, Don Quijote). Prefer flagships over random branches.
-2. **Treasure hunting** — handcrafted, made-in-Japan items to bring home. Ceramics, textiles (indigo, shibori, Nishijin-ori), artisan single-craft specialists, records (vinyl, Japanese pressings, ambient/electronic), flea/temple markets.
+1. **Experience shopping** — stores worth visiting for the spectacle. Prefer flagships over random branches.
+2. **Treasure hunting** — handcrafted, locally made items to bring home. Ceramics, textiles, artisan single-craft specialists, records (vinyl pressings, ambient/electronic), flea markets.
 
 Skip: mass-produced souvenirs, branded streetwear resale, department store floors as a destination.
 
@@ -27,14 +27,14 @@ website: ""
 **`type` vocabulary** (fine-grained — bucket-by-type drives tier comparison, so each type should hold genuinely comparable venues):
 
 - *Crafts / made-by-hand* — `bags`, `shoes`, `ceramics`, `textiles`, `paper`, `knives`, `chopsticks`, `lacquer`, `fans`, `brushes`, `books`
-- *Single-product specialists* — `tea`, `food`, `records`, `gachapon`, `electronics`
+- *Single-product specialists* — `tea`, `food`, `records`, `electronics`
 - *Lifestyle / fashion* — `clothing`, `homewares`
 - *Mode-of-shopping* — `vintage`, `market`, `department`, `antiques`, `art-supplies`
 - *Last-resort fallback* — `crafts`, `specialty` — only when a venue genuinely doesn't fit a product bucket (e.g., multi-shop retail complex, multi-floor everything-store). Prefer adding a new fine-grained type over reaching for these.
 
 **`notes:` is user-reserved** (see `.claude/rules/travel.md`). Don't write to it unless Ash asks.
 
-`tier` is on the shared frontmatter — see the **Tier list** section in `.claude/rules/travel.md` for definitions and the **Sourcing gate** that gates SS/S. Bucket by `type`; each type holds the comparable peer set (HERZ competes with other `bags`, not with Hakuchikudo's fans). Shopping-specific tier signals will be added once we've learned from the Tokyo dining tier pass.
+`tier` is on the shared frontmatter — see the **Tier list** section in `.claude/rules/travel.md` for definitions and the **Sourcing gate** that gates SS/S. Bucket by `type`; each type holds the comparable peer set (a bag maker competes with other `bags`, not with a fan shop). Shopping-specific tier signals will be added once we've learned from the dining tier pass.
 
 ## Body
 

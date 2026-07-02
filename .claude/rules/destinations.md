@@ -17,16 +17,13 @@ status: considering    # considering | shortlist | chosen | ruled-out
 destination: ""
 vibe: ""
 recommended_by: [Claude]
-spiritual: low         # low | moderate | high — "high" means animistic
-                       #   (primeval forests, sacred groves, moss, mist,
-                       #   waterfalls, ancient shrines subsumed by nature),
-                       #   NOT religious / temple-stay / monastery / meditation
+spiritual: low         # low | moderate | high; "high" means nature felt as
+                       #   sacred (primeval forests, sacred groves, moss, mist,
+                       #   waterfalls), NOT religious / monastery / meditation
 nature: low            # low | moderate | high
 art: low               # low | moderate | high
-onsen: false
 nights_needed: ""      # e.g. "2-3"
-transit_from_kyoto: "" # e.g. "2.5-3h"
-transit_from_tokyo: "" # e.g. "4-5h"
+transit_from_base: ""  # e.g. "2.5-3h" from the trip's base city
 logistics: low         # lowest | low | medium | high | highest
 google_maps_url: ""
 cover: ""

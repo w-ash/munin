@@ -10,7 +10,7 @@ paths:
 All travel venue and restaurant files should have these geo fields:
 
 ```yaml
-coordinates: "35.0395, 135.7295"  # "lat, lng" decimal degrees
+coordinates: "51.5136, -0.1365"   # "lat, lng" decimal degrees
 google_maps_url: ""
 address: ""                        # romanized
 address_local: ""                  # native script (show to taxi, match signage)
@@ -21,9 +21,9 @@ address_local: ""                  # native script (show to taxi, match signage)
 Travel venue files (not local restaurants) also have three station fields:
 
 ```yaml
-nearest_station: "Kayabacho"         # station name only
+nearest_station: "Baker Street"      # station name only
 walk_time_to_station: 2               # integer minutes (real walking route)
-station_lines: "Hibiya, Tozai"        # optional, comma-separated
+station_lines: "Bakerloo, Jubilee"    # optional, comma-separated
 ```
 
 ## How to fill fields

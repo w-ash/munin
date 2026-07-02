@@ -1,7 +1,7 @@
 """Download, convert, and attach a cover image to a travel option file.
 
 Usage:
-    scripts/vault-tool cover_image --file "Travel/Japan26/Dining/entries/Fuunji.md" --url "https://example.com/photo.jpg"
+    scripts/vault-tool cover_image --file "Travel/Rome27/Dining/entries/Trattoria Da Enzo.md" --url "https://example.com/photo.jpg"
     scripts/vault-tool cover_image --file ... --url "..." --write
     scripts/vault-tool cover_image --file ... --local "raw-photo.jpg" --write
 
@@ -31,6 +31,7 @@ from vault_scripts._retry import (
     wikimedia_retry,
 )
 from vault_scripts._utils import (
+    TRAVEL_DIR,
     VAULT,
     add_inline_embed,
     find_images_dir,
@@ -123,6 +124,9 @@ def main() -> None:
     if not file_path.exists():
         print(f"Error: {args.file} not found", file=sys.stderr)
         sys.exit(1)
+    if not file_path.is_relative_to(TRAVEL_DIR):
+        print(f"Error: {args.file} is not under Travel/", file=sys.stderr)
+        sys.exit(1)
 
     output_filename = f"{file_path.stem}.webp"
     images_dir = find_images_dir(file_path)
@@ -157,6 +161,7 @@ def main() -> None:
         print("\n  Pass --write to apply.")
         return
 
+    images_dir.mkdir(exist_ok=True)
     img.save(output_path, "webp", quality=args.quality)
     size_kb = output_path.stat().st_size / 1024
     print(f"  Saved: {output_path.relative_to(VAULT)} ({size_kb:.0f} KB)")

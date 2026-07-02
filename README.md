@@ -9,7 +9,7 @@ Named after Odin's raven of memory.
 ```
 .claude/
   rules/      ← schema/convention rules loaded alongside CLAUDE.md
-  skills/     ← /daily, /person, /restaurant, /triage, /trip
+  skills/     ← slash commands + tool skills (see Skills below)
 CLAUDE.md     ← top-level project instructions for Claude Code
 scripts/      ← Python helpers (uv-managed)
   vault-tool             dispatcher
@@ -53,13 +53,17 @@ The venv lives outside iCloud too — `vault-tool` sets `UV_PROJECT_ENVIRONMENT=
 
 ## Skills
 
-| Slash command | Purpose |
-|---------------|---------|
+| Skill | Purpose |
+|-------|---------|
 | `/daily` | Open or create today's daily journal entry |
 | `/person` | Create or enrich a person note from Apple Contacts |
 | `/restaurant` | Log a visit or add a new restaurant to track |
 | `/triage` | Walk through incomplete todos across the vault |
 | `/trip` | Vacation planning session loader |
+| `/weather` | Refresh per-day forecast lines in a trip's day plans |
+| `google-docs` | Read and edit Google Docs via `vault-tool docs` |
+| `google-sheets` | Read and update Google Sheets via `vault-tool sheets` |
+| `print-one-pager` | Build print-ready single-page HTML/PDF documents |
 
 ## Dispatcher commands
 
@@ -69,6 +73,9 @@ scripts/vault-tool geocode lookup --file "<path>" --write
 scripts/vault-tool geocode batch <Trip> --stations --write
 scripts/vault-tool style_audit <Trip>
 scripts/vault-tool sync_contacts
+scripts/vault-tool docs export <doc-id-or-url>
+scripts/vault-tool sheets read-table --spreadsheet <id>
+scripts/vault-tool cover_image --file "<path>" --url "<image-url>"
 ```
 
 See `scripts/vault_scripts/` for the full list. Module docstrings explain each one.

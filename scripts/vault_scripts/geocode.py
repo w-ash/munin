@@ -1,24 +1,24 @@
 """Geocode travel venue files in the Obsidian vault.
 
 Usage:
-    scripts/vault-tool geocode lookup "Kinkaku-ji Kyoto"
-    scripts/vault-tool geocode lookup --file Travel/Japan26/Dining/entries/Den.md --write
+    scripts/vault-tool geocode lookup "Pantheon Rome"
+    scripts/vault-tool geocode lookup --file "Travel/Rome27/Dining/entries/Trattoria Da Enzo.md" --write
     scripts/vault-tool geocode lookup --file ... --write --enrich
     scripts/vault-tool geocode lookup --file ... --write --stations
-    scripts/vault-tool geocode batch Japan26                # dry-run
-    scripts/vault-tool geocode batch Japan26 --write        # apply
-    scripts/vault-tool geocode batch Japan26 --write --dir Dining
-    scripts/vault-tool geocode batch Japan26 --write --stations
-    scripts/vault-tool geocode batch Japan26 --write --lines         # Overpass pass
-    scripts/vault-tool geocode batch Japan26 --write --stations --lines
-    scripts/vault-tool geocode batch Japan26 --write --refresh-urls   # rewrite malformed URLs
+    scripts/vault-tool geocode batch Rome27                # dry-run
+    scripts/vault-tool geocode batch Rome27 --write        # apply
+    scripts/vault-tool geocode batch Rome27 --write --dir Dining
+    scripts/vault-tool geocode batch Rome27 --write --stations
+    scripts/vault-tool geocode batch Rome27 --write --lines         # Overpass pass
+    scripts/vault-tool geocode batch Rome27 --write --stations --lines
+    scripts/vault-tool geocode batch Rome27 --write --refresh-urls   # rewrite malformed URLs
 
 Tiers:
     Default      → Essentials SKU (10k free/month): coordinates, address, maps URL
     --enrich     → Pro SKU (5k free/month): + website, opening hours
-    --stations   → Places Nearby (5k free/month) + Routes (10k free/month) —
+    --stations   → Places Nearby (5k free/month) + Routes (10k free/month):
                    fills nearest_station + walk_time_to_station. Fast, stable.
-    --lines      → Overpass/OSM (free, ~1s throttle, flaky) — fills station_lines
+    --lines      → Overpass/OSM (free, ~1s throttle, flaky): fills station_lines
                    only. Slow; runs as a separate pass. Can combine with
                    --stations, or run alone when nearest_station is already set.
     --refresh-urls → Re-classify any google_maps_url that isn't a CID URL
@@ -72,8 +72,10 @@ from vault_scripts._utils import (
     TRAVEL_DIR,
     find_entry_files,
     fm_str,
+    format_coords,
     insert_before_closing_fence,
     insert_field_after,
+    parse_coords,
     parse_typed_args,
     patch_field,
     rel_path,
@@ -102,7 +104,7 @@ OVERPASS_TIMEOUT_S = 60
 OVERPASS_MIN_INTERVAL_S = 1.1
 STATION_TYPES: list[str] = ["subway_station", "train_station", "light_rail_station"]
 # Places Nearby uses rankPreference=DISTANCE + maxResultCount=1, so widening
-# the radius doesn't pick a farther station over a closer one — it only
+# the radius doesn't pick a farther station over a closer one; it only
 # catches genuinely-remote venues where no station sits within a shorter
 # walk. 2000m ≈ 25 min walk, wide enough to cover station-sparse
 # neighborhoods (e.g., Murasakino in north Kyoto, where the nearest
@@ -241,7 +243,7 @@ def _overpass_post[M: BaseModel](
 def _overpass_wait() -> None:
     """Enforce fair-use throttle against the actual last-call time, so the
     first call of a run doesn't pay a 1.1s tax for no reason."""
-    global _overpass_last_request  # noqa: PLW0603 — module-scope throttle timestamp
+    global _overpass_last_request  # noqa: PLW0603 (module-scope throttle timestamp)
     elapsed = time.monotonic() - _overpass_last_request
     if elapsed < OVERPASS_MIN_INTERVAL_S:
         time.sleep(OVERPASS_MIN_INTERVAL_S - elapsed)
@@ -269,7 +271,7 @@ def places_search(
     lang: str = "en",
     enrich: bool = False,
 ) -> tuple[PlacesPlace, int] | None:
-    """Calls Places API (New) REST endpoint directly — the ``googlemaps``
+    """Calls Places API (New) REST endpoint directly: the ``googlemaps``
     Python package only supports the legacy Places API which Google is
     deprecating. FieldMask is mandatory; omitting it returns an error.
 
@@ -309,7 +311,7 @@ def is_malformed_maps_url(url: str) -> bool:
     """A URL needs ``--refresh-urls`` when it's not the CID form Google ships
     via its Share button and returns from the Places API's ``googleMapsUri``.
 
-    CID is the Google Business Profile identifier — the most permanent
+    CID is the Google Business Profile identifier: the most permanent
     anchor (survives owner / address / name changes) and the only shape
     the iOS Google Maps app handles reliably. Both the legacy
     ``?q=place_id:<id>`` form and the briefly-used ``query_place_id=<id>``
@@ -325,7 +327,7 @@ def validate_for_url(place: PlacesPlace) -> str | None:
     - ``place.businessStatus`` is ``CLOSED_PERMANENTLY`` / ``CLOSED_TEMPORARILY``
     - Google matched but returned an empty ``googleMapsUri``
 
-    Surfaced to the user so they can delete the entry or refile — silently
+    Surfaced to the user so they can delete the entry or refile; silently
     writing a URL for a closed venue was the complaint that drove this
     pipeline change. A Nominatim fallback is *not* a refusal: it geocoded
     fine, just without a Google URL, and its low ``confidence``/``source``
@@ -372,7 +374,7 @@ def _enrichment_from(place: PlacesPlace) -> Enrichment:
 def geocode_google(query: str, options: GeocodeOptions) -> GeoResult | None:
     """Two API calls: one for English, one for the local script (auto-detected
     from country code via ``COUNTRY_LANG``). Pass ``need_local=False`` when
-    only coordinates/URL are needed — each call costs money.
+    only coordinates/URL are needed; each call costs money.
     """
     en = places_search(query, lang="en", enrich=options.enrich)
     if en is None:
@@ -393,7 +395,7 @@ def geocode_google(query: str, options: GeocodeOptions) -> GeoResult | None:
                 address_local = local[0].formattedAddress
 
     result: GeoResult = {
-        "coordinates": f"{lat}, {lng}",
+        "coordinates": format_coords(lat, lng),
         "address": place_en.formattedAddress,
         "address_local": address_local,
         "google_maps_url": place_en.googleMapsUri,
@@ -416,7 +418,7 @@ def geocode_google(query: str, options: GeocodeOptions) -> GeoResult | None:
 
 def geocode_nominatim(query: str) -> GeoResult | None:
     """Free fallback (no API key needed). Can't provide ``address_local`` or
-    ``place_id`` — only useful for coordinates and a rough address.
+    ``place_id``; only useful for coordinates and a rough address.
     Nominatim's usage policy requires max 1 req/sec and a User-Agent.
     """
     try:
@@ -437,7 +439,7 @@ def geocode_nominatim(query: str) -> GeoResult | None:
     lng = round(float(top.lon), 4)
 
     return {
-        "coordinates": f"{lat}, {lng}",
+        "coordinates": format_coords(lat, lng),
         "address": top.display_name,
         "address_local": "",
         "google_maps_url": "",
@@ -454,7 +456,7 @@ def geocode(query: str, options: GeocodeOptions | None = None) -> GeoResult | No
 
     When ``options.stations`` or ``options.lines`` is True and Google
     geocoding succeeded (coords known), also attaches station info under
-    ``result["station"]`` — ``stations`` drives the Google name+walk
+    ``result["station"]``: ``stations`` drives the Google name+walk
     lookup, ``lines`` drives the Overpass transit-lines lookup.
     """
     opts = options or GeocodeOptions()
@@ -466,11 +468,15 @@ def geocode(query: str, options: GeocodeOptions | None = None) -> GeoResult | No
         if result is None:
             return None
 
-    if (opts.stations or opts.lines) and result.get("coordinates"):
-        lat_str, lng_str = result["coordinates"].split(",")
+    coords = (
+        parse_coords(result["coordinates"])
+        if (opts.stations or opts.lines) and result.get("coordinates")
+        else None
+    )
+    if coords is not None:
         station_info = get_station_info(
-            float(lat_str.strip()),
-            float(lng_str.strip()),
+            coords[0],
+            coords[1],
             anchor_name=opts.existing_station_name,
             fetch_walk=opts.stations,
             fetch_lines=opts.lines,
@@ -546,7 +552,7 @@ def walk_duration_minutes(
     """Calls Routes API ``computeRoutes`` with travelMode=WALK.
 
     Returns walking duration in minutes (ceiling so we don't understate).
-    Google's walking route follows the street network — not a straight-line
+    Google's walking route follows the street network, not a straight-line
     estimate.
     """
     try:
@@ -574,7 +580,7 @@ def walk_duration_minutes(
     if not response.routes:
         return None
     # Routes serializes duration as a protobuf Duration string, which may carry
-    # fractional seconds (e.g. "512.5s") — accept them so a valid route isn't
+    # fractional seconds (e.g. "512.5s"); accept them so a valid route isn't
     # silently dropped.
     m = re.match(r"(\d+(?:\.\d+)?)s$", response.routes[0].duration)
     if not m:
@@ -589,9 +595,9 @@ def _overpass_query(query: str) -> list[dict[str, str]]:
     to the next mirror when all retries are exhausted.
 
     Returns the ``tags`` dicts of all matching elements (empty list when the
-    query succeeded but had no matches — callers can cache that as
+    query succeeded but had no matches; callers can cache that as
     "confirmed empty"). Raises :class:`OverpassUnavailableError` if every
-    mirror failed — distinct from empty so callers don't treat transient
+    mirror failed; distinct from empty so callers don't treat transient
     outages as authoritative "no data".
     """
     errors: list[str] = []
@@ -617,7 +623,7 @@ def fetch_station_lines(
 
     Google Places returns station types but never line/operator names. OSM
     stations carry ``network``/``operator``/``line`` tags with variable
-    coverage by region — best where local mappers are active. Aggregates
+    coverage by region (best where local mappers are active). Aggregates
     across all station nodes within a small radius (large interchange
     stations have one OSM node per platform/line).
 
@@ -626,7 +632,7 @@ def fetch_station_lines(
     tags from adjacent stations that share coords (e.g. two lines meeting
     above/below ground at the same intersection).
 
-    Raises :class:`OverpassUnavailableError` if every mirror failed — don't
+    Raises :class:`OverpassUnavailableError` if every mirror failed; don't
     cache so a later retry can succeed, and refresh-mode callers must
     preserve existing values instead of clearing them. A cached/returned
     ``None`` means "OSM confirmed no Latin-script line/network data".
@@ -665,7 +671,7 @@ def fetch_station_lines(
 
     # Prefer `line` (most specific, e.g. "Toei Oedo Line") over `network`
     # (broader system, e.g. "Toei subway") or `operator` (the authority).
-    # Skip predominantly non-Latin values — they don't match the vault's
+    # Skip predominantly non-Latin values: they don't match the vault's
     # romanized convention and forcing the user to translate is worse than
     # leaving empty. The `:en` suffix prefers English tags when present.
     line_keys = ("line:en", "line", "network:en", "network", "operator:en", "operator")
@@ -696,7 +702,7 @@ def _canonicalize_station_name(name: str) -> str:
 
     Removes parenthetical context ("(Nijo-jo Castle)"), quoted aliases
     ("'Harajuku'", curly or straight), and the "Station"/"Sta."/"Sta"
-    suffix — iteratively, since names may stack all three (e.g.
+    suffix, iteratively, since names may stack all three (e.g.
     "Meiji-jingumae 'Harajuku' Sta."). The result is the core station
     name suitable for storing in frontmatter.
     """
@@ -722,7 +728,7 @@ def _normalize_station_name(s: str) -> str:
     "Sta" abbreviation to "station" before the suffix removal.
 
     Also collapses Hepburn m-before-m/b/p to n (Gaiemmae → Gaienmae,
-    Shimbashi → Shinbashi) — Google and OSM disagree on this Japanese
+    Shimbashi → Shinbashi); Google and OSM disagree on this Japanese
     romanization variant. The transform is applied universally (not
     gated on country) because it's symmetry-preserving for matching:
     we apply it to both sides of every comparison, so even on names
@@ -807,15 +813,15 @@ def get_station_info(
     ``fetch_lines`` (or both) must be True; otherwise returns None.
 
     When ``anchor_name`` is given (file already has ``nearest_station`` set),
-    geocode *that* station by name and compute walk/lines from its coords
-    — preserves the pre-populated name authoritatively. If the anchor can't
+    geocode *that* station by name and compute walk/lines from its coords;
+    preserves the pre-populated name authoritatively. If the anchor can't
     be geocoded near the venue, returns None rather than risk mismatched
     data from a different nearby station.
 
     Otherwise finds the nearest transit station via Places Nearby.
 
     ``station_lines_fetched`` is True only when Overpass actually delivered
-    an answer (which may itself be None — meaning OSM confirmed no English
+    an answer (which may itself be None, meaning OSM confirmed no English
     data). False when ``fetch_lines`` is False or when every Overpass mirror
     failed; refresh-mode callers preserve existing values on False.
     """
@@ -875,7 +881,7 @@ def build_query(metadata: dict[str, object]) -> str:
     A precise ``address`` pins the spot well enough that ``neighborhood`` adds
     only noise, so neighborhood is stacked in as context only when no usable
     address is present. Wikilink-typed fields (``destination``, ``neighborhood``)
-    are reduced to their display value before composition — raw ``[[Tokyo]]`` in
+    are reduced to their display value before composition; raw ``[[Tokyo]]`` in
     the query string makes Places return zero results.
     """
     name = fm_str(metadata, "name") or fm_str(metadata, "name_jp")
@@ -948,7 +954,7 @@ def apply_geo_updates(text: str, updates: dict[str, object]) -> str:
 
     def _has_value(k: str, v: object) -> bool:
         # walk_time: 0 is a legitimate value (direct station connection);
-        # "" is a refresh-mode clear signal. Same for station_lines — "" clears.
+        # "" is a refresh-mode clear signal. Same for station_lines: "" clears.
         if k in {"walk_time_to_station", "station_lines"}:
             return v is not None
         return bool(v)
@@ -1012,12 +1018,12 @@ def detect_gaps(
     """Detect which geo fields need filling. Returns {field: reason}.
 
     When ``include_stations`` is True, also checks ``nearest_station`` and
-    ``walk_time_to_station`` (Google path — fast). When ``include_lines``
-    is True, checks ``station_lines`` (Overpass path — slow, optional).
+    ``walk_time_to_station`` (Google path: fast). When ``include_lines``
+    is True, checks ``station_lines`` (Overpass path: slow, optional).
     ``refresh_stations`` forces populated station fields into the gaps
     (behind the matching include flag) so `build_geo_updates` will
     overwrite with anchor-aware fresh lookups. ``nearest_station`` is
-    never refreshed — it's the anchor. ``refresh_urls`` re-classifies
+    never refreshed: it's the anchor. ``refresh_urls`` re-classifies
     any non-CID ``google_maps_url`` values as gaps so they get rewritten
     to the CID form Google's API returns.
     """
@@ -1058,7 +1064,7 @@ def build_geo_updates(
     result: GeoResult,
     gaps: dict[str, GapReason],
 ) -> dict[str, object]:
-    """Never overwrites existing populated values — only fills gaps. When
+    """Never overwrites existing populated values; only fills gaps. When
     the existing ``address`` is predominantly non-Latin script
     (``non_latin``), replaces it with the API's romanized version and
     moves the original to ``address_local`` (preferring the API's
@@ -1076,7 +1082,7 @@ def build_geo_updates(
         updates["address"] = result["address"]
 
     if gaps.get("address") == "non_latin":
-        # Replacing a non-Latin address — prefer API's local-language
+        # Replacing a non-Latin address: prefer API's local-language
         # result over the old (possibly mixed-script) text.
         updates["address_local"] = result.get("address_local") or fm_str(
             metadata, "address"
@@ -1084,7 +1090,7 @@ def build_geo_updates(
     elif "address_local" in gaps and result.get("address_local"):
         updates["address_local"] = result["address_local"]
 
-    # Enrichment fields — only fill empty frontmatter, never overwrite
+    # Enrichment fields: only fill empty frontmatter, never overwrite
     enrichment = result.get("enrichment")
     if enrichment:
         if enrichment.get("website") and not fm_str(metadata, "website"):
@@ -1106,8 +1112,8 @@ def build_geo_updates(
             updates["walk_time_to_station"] = walk if walk is not None else ""
         elif walk_reason and walk is not None:
             updates["walk_time_to_station"] = walk
-        # Only write station_lines when Overpass actually answered —
-        # on mirror exhaustion we preserve existing data rather than clear it.
+        # Only write station_lines when Overpass actually answered; on
+        # mirror exhaustion we preserve existing data rather than clear it.
         lines_reason = gaps.get("station_lines")
         lines = station["station_lines"]
         if station["station_lines_fetched"]:
@@ -1215,7 +1221,7 @@ def cmd_lookup(args: _Args) -> None:
       gating and ``need_local`` derivation with :func:`cmd_batch` via
       :func:`process_venue`. With ``--write``, updates the file in-place.
     - Raw query string (no ``--file``): debug-style one-off geocode call.
-      No gaps, no gating, no writes — just "show me what Google returns".
+      No gaps, no gating, no writes: just "show me what Google returns".
     """
     if args.file is not None:
         _lookup_file(args)
@@ -1224,7 +1230,7 @@ def cmd_lookup(args: _Args) -> None:
 
 
 def _lookup_file(args: _Args) -> None:
-    assert args.file is not None  # noqa: S101 — dispatcher guarantees this
+    assert args.file is not None  # noqa: S101 (dispatcher guarantees this)
     file_path = resolve_file_arg(args.file)
     text = file_path.read_text(encoding="utf-8")
     post = frontmatter.loads(text)
@@ -1441,7 +1447,7 @@ def cmd_batch(args: _Args) -> None:
                 file=sys.stderr,
             )
             updated += 1
-        else:  # no_new_data (no_gaps can't occur — pre-filtered)
+        else:  # no_new_data (no_gaps can't occur: pre-filtered)
             print("SKIP (no new data)", file=sys.stderr)
             skipped += 1
 
@@ -1453,7 +1459,7 @@ def cmd_batch(args: _Args) -> None:
 
     if url_skips:
         print(
-            f"\nURL skips ({len(url_skips)}) — files needing manual review:",
+            f"\nURL skips ({len(url_skips)}); files needing manual review:",
             file=sys.stderr,
         )
         for path, reason in url_skips:
@@ -1475,7 +1481,7 @@ def main() -> None:
 
     lookup_parser = subparsers.add_parser("lookup", help="Geocode a single query")
     _ = lookup_parser.add_argument(
-        "query", nargs="*", help="Search query (e.g. 'Den 傳 Tokyo')"
+        "query", nargs="*", help="Search query (e.g. 'Pantheon Rome')"
     )
     _ = lookup_parser.add_argument(
         "--file", help="Read query from a venue file's frontmatter"
@@ -1513,7 +1519,7 @@ def main() -> None:
 
     batch_parser = subparsers.add_parser("batch", help="Batch geocode venue files")
     _ = batch_parser.add_argument(
-        "trip", help="Trip folder name under Travel/ (e.g. Japan26)"
+        "trip", help="Trip folder name under Travel/ (e.g. Rome27)"
     )
     _ = batch_parser.add_argument(
         "--write", action="store_true", help="Apply changes (default is dry-run)"

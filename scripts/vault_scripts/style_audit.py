@@ -1,12 +1,12 @@
 """Audit and update travel option files against the Style Guide.
 
 Usage:
-    scripts/vault-tool style_audit Japan26
-    scripts/vault-tool style_audit Japan26 --update
-    scripts/vault-tool style_audit Japan26 --update --write
-    scripts/vault-tool style_audit Japan26 --extract-summaries
-    scripts/vault-tool style_audit Japan26 --apply-summaries /tmp/out.txt
-    scripts/vault-tool style_audit Japan26 --dir Dining
+    scripts/vault-tool style_audit Rome27
+    scripts/vault-tool style_audit Rome27 --update
+    scripts/vault-tool style_audit Rome27 --update --write
+    scripts/vault-tool style_audit Rome27 --extract-summaries
+    scripts/vault-tool style_audit Rome27 --apply-summaries /tmp/out.txt
+    scripts/vault-tool style_audit Rome27 --dir Dining
 """
 
 from __future__ import annotations
@@ -464,7 +464,7 @@ def main() -> None:
         epilog=__doc__,
     )
     _ = parser.add_argument(
-        "trip", help="Trip folder name under Travel/ (e.g. Japan26)"
+        "trip", help="Trip folder name under Travel/ (e.g. Rome27)"
     )
     _ = parser.add_argument(
         "--dir", choices=ALL_CATEGORIES, help="Limit to one category"

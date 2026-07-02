@@ -21,7 +21,7 @@ scripts/vault_scripts/geocode_errors.json
 # to load, never enter git history.
 .claude/rules/taxes.md
 .claude/rules/accommodations.md
-.claude/rules/japan-2026.md
+.claude/rules/personal.md
 
 # macOS
 .DS_Store

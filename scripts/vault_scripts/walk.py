@@ -1,6 +1,6 @@
 """Compute walking time between two or more locations.
 
-Uses Google's Routes API with travelMode=WALK — actual street-network walk,
+Uses Google's Routes API with travelMode=WALK: actual street-network walk,
 not straight-line distance. Same SKU as ``geocode``'s ``walk_time_to_station``
 pipeline (10k free/month). Reuses ``geocode``'s Places search to resolve
 free-text queries.
@@ -16,18 +16,18 @@ Examples:
 
     # Hotel ↔ filed dining option
     scripts/vault-tool walk \\
-      "Travel/Japan26/Accommodations/entries/BnA Alter Museum.md" \\
-      "Travel/Japan26/Dining/entries/cité.md"
+      "Travel/Rome27/Accommodations/entries/Hotel Locarno.md" \\
+      "Travel/Rome27/Dining/entries/Trattoria Da Enzo.md"
 
     # Hotel ↔ several free-text candidates
     scripts/vault-tool walk \\
-      "Travel/Japan26/Accommodations/entries/BnA Alter Museum.md" \\
-      "Blue Bottle Coffee Kyoto Kiyamachi" \\
-      "% Arabica Fujii Daimaru Kyoto" \\
-      "Goodman Roaster Kyoto"
+      "Travel/Rome27/Accommodations/entries/Hotel Locarno.md" \\
+      "Faro Caffè Specialty Rome" \\
+      "Barnum Cafe Rome" \\
+      "Roscioli Caffè Rome"
 
     # Pure coordinates → free-text
-    scripts/vault-tool walk "35.0045, 135.7688" "Goodman Roaster Kyoto"
+    scripts/vault-tool walk "41.9028, 12.4964" "Roscioli Caffè Rome"
 """
 
 from __future__ import annotations
@@ -36,7 +36,6 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-import re
 import sys
 
 import frontmatter
@@ -44,14 +43,14 @@ import yaml
 
 from vault_scripts._utils import (
     VAULT,
+    format_coords,
     has_field,
-    insert_field_after,
+    parse_coords,
     parse_typed_args,
-    patch_field,
+    upsert_field_after,
 )
 from vault_scripts.geocode import GeocodeOptions, geocode, walk_duration_minutes
 
-COORD_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
 MIN_LOCATIONS = 2
 DEFAULT_ANCHOR_FIELD = "walk_time_to_station"
 ROUTES_MAX_WORKERS = 10
@@ -59,39 +58,21 @@ ROUTES_MAX_WORKERS = 10
 
 def _write_walk_field(
     path: Path,
+    text: str,
     field: str,
     minutes: int,
     anchor: str,
 ) -> str:
-    """Upsert ``field: <minutes>`` into ``path``'s frontmatter, positioning
-    it right after ``anchor`` whenever the anchor exists.
-
-    Strips any existing instance of the field first, so re-running with a
-    different anchor (or after a prior run that appended at the end) cleanly
-    repositions the line instead of leaving duplicates. Falls back to
-    appending before the closing fence when the anchor isn't present.
-    Returns a short status string.
+    """Upsert ``field: <minutes>`` into ``path``'s frontmatter (already read as
+    ``text``), positioning it right after ``anchor`` whenever the anchor exists;
+    see :func:`vault_scripts._utils.upsert_field_after` for the reposition
+    semantics. Returns a short status string.
     """
-    text = path.read_text(encoding="utf-8")
-    # Drop any existing instance first so a re-run repositions cleanly instead
-    # of leaving duplicates (``\n?`` tolerates a field on the file's last line).
-    stripped = re.sub(
-        rf"^{re.escape(field)}:[^\n]*\n?",
-        "",
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if anchor != field and has_field(stripped, anchor):
-        new_text = insert_field_after(stripped, anchor, field, minutes)
-        op = f"after {anchor}"
-    else:
-        new_text = patch_field(stripped, field, minutes)
-        op = "set"
+    new_text = upsert_field_after(text, field, minutes, anchor)
     if new_text == text:
         return "no change"
     path.write_text(new_text, encoding="utf-8")
-    return op
+    return f"after {anchor}" if anchor != field and has_field(text, anchor) else "set"
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,19 +82,14 @@ class Resolved:
     lng: float
     source: str
     path: Path | None = None
-
-
-def _coords_from_string(s: str) -> tuple[float, float] | None:
-    m = COORD_RE.match(s)
-    if m is None:
-        return None
-    return float(m.group(1)), float(m.group(2))
+    text: str | None = None  # raw note text, kept so writers don't re-read
 
 
 def _resolve_file(path: Path) -> Resolved | None:
     """Read ``coordinates:`` and ``name:`` from a markdown file's frontmatter."""
     try:
-        post = frontmatter.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        post = frontmatter.loads(text)
     except (OSError, yaml.YAMLError) as e:
         print(f"  Could not read {path}: {e}", file=sys.stderr)
         return None
@@ -121,7 +97,7 @@ def _resolve_file(path: Path) -> Resolved | None:
     if not isinstance(coords_raw, str) or not coords_raw.strip():
         print(f"  {path}: no `coordinates:` in frontmatter", file=sys.stderr)
         return None
-    parsed = _coords_from_string(coords_raw)
+    parsed = parse_coords(coords_raw)
     if parsed is None:
         print(f"  {path}: malformed coordinates {coords_raw!r}", file=sys.stderr)
         return None
@@ -133,12 +109,13 @@ def _resolve_file(path: Path) -> Resolved | None:
         lng=parsed[1],
         source=f"file:{path.name}",
         path=path,
+        text=text,
     )
 
 
 def resolve_location(arg: str) -> Resolved | None:
     """Coords → file → geocode, in that order."""
-    coords = _coords_from_string(arg)
+    coords = parse_coords(arg)
     if coords is not None:
         return Resolved(label=arg, lat=coords[0], lng=coords[1], source="coords")
 
@@ -151,7 +128,7 @@ def resolve_location(arg: str) -> Resolved | None:
     result = geocode(arg, options=GeocodeOptions(need_local=False))
     if result is None:
         return None
-    parsed = _coords_from_string(result["coordinates"])
+    parsed = parse_coords(result["coordinates"])
     if parsed is None:
         return None
     return Resolved(
@@ -232,10 +209,16 @@ def main() -> None:
     for dest, mins in zip(destinations, durations, strict=True):
         time_str = f"{mins} min" if mins is not None else "routes-failed"
         write_note = ""
-        if args.write_field is not None and mins is not None and dest.path is not None:
+        if (
+            args.write_field is not None
+            and mins is not None
+            and dest.path is not None
+            and dest.text is not None
+        ):
             try:
                 op = _write_walk_field(
                     dest.path,
+                    dest.text,
                     args.write_field,
                     mins,
                     args.anchor_after,
@@ -246,7 +229,7 @@ def main() -> None:
                 write_note = f" ✓ {op}" if op != "no change" else " (no change)"
         rows.append((
             dest.label,
-            f"{dest.lat}, {dest.lng}",
+            format_coords(dest.lat, dest.lng),
             time_str,
             dest.source,
             write_note,

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# vault-tool — dispatcher for vault_scripts modules.
+# vault-tool: dispatcher for vault_scripts modules.
 #
 # Usage:  scripts/vault-tool <module> [args...]
 #         vault-tool <module> [args...]    # if PATH'd
 #
 # Examples:
-#     scripts/vault-tool geocode lookup --file "Travel/Japan26/Dining/entries/Den.md" --write
-#     scripts/vault-tool geocode batch Japan26 --write --stations
-#     scripts/vault-tool style_audit Japan26
+#     scripts/vault-tool geocode lookup --file "Travel/Rome27/Dining/entries/Trattoria Da Enzo.md" --write
+#     scripts/vault-tool geocode batch Rome27 --write --stations
+#     scripts/vault-tool style_audit Rome27
 #
 # Lists available modules when called with no args or an unknown module.
 # Kept bash-3.2 compatible so it runs on macOS's stock /bin/bash.
@@ -18,7 +18,7 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 PKG_DIR="$SCRIPTS_DIR/vault_scripts"
 ENV_FILE="$SCRIPTS_DIR/.env"
 
-# Keep the venv outside iCloud — syncing 1.6k venv files breaks on lazy
+# Keep the venv outside iCloud: syncing 1.6k venv files breaks on lazy
 # materialization and on cross-arch machine moves. uv.lock + pyproject.toml
 # stay in iCloud; each machine builds its own local venv from them.
 : "${UV_PROJECT_ENVIRONMENT:=$HOME/.local/share/uv/envs/vault-scripts}"

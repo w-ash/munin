@@ -1,7 +1,7 @@
 ---
 name: print-one-pager
 user_invocable: true
-description: Creates self-contained, print-ready HTML documents that reliably print or export to a single US Letter (8.5x11) page or a clean PDF. Use when the user wants a flyer, one-pager, handout, poster, menu, certificate, program, or any single-page printable document, or mentions printing to PDF or fitting content on one page. Encodes print-safe CSS and a headless render check that verifies the page count before finishing.
+description: Creates self-contained, print-ready HTML documents that reliably print or export to a single US Letter (8.5x11) page or a clean PDF. Use when the user wants a flyer, one-pager, handout, menu, certificate, program, or any single-page printable document (including a letter-size mini poster), or mentions printing to PDF or fitting content on one page. Encodes print-safe CSS and a headless render check that verifies the page count before finishing.
 ---
 
 # Print one-pager
@@ -24,6 +24,8 @@ chooses Cmd+P then Save as PDF (or the Print button). No build step, no dependen
 - `scripts/check_print.sh` - renders the file and reports the fit signals plus PNGs to inspect.
 - `scripts/embed_fonts.sh` - turns a Google Fonts URL into a base64 `@font-face` block so web fonts
   render exactly (on screen, in print, and in the Copy-PNG export) and work offline.
+- `scripts/embed_image.sh` - downloads/reads an image, resizes, and prints the paste-ready
+  `data:` URI (`<img>` tag or `--css` `url()` form).
 
 ## Workflow
 1. Copy `template.html` to the destination (default: alongside the user's files, named like
@@ -31,11 +33,11 @@ chooses Cmd+P then Save as PDF (or the Print button). No build step, no dependen
    references.
 2. Build the content into the copy. Restyle freely (fonts, colors, layout) for the request, but
    keep the print-safe rules below intact. Crib structure from `example-sofras.html` when useful.
-3. Embed every image as a `data:` URI so the file is self-contained. On macOS:
-   `curl` the image, `sips -Z <px> -s format jpeg` to resize, `base64 -i` to encode, then paste
-   into `<img src="data:image/jpeg;base64,...">`. Prefer official/public-domain sources. If the
-   design uses web fonts, embed them too: `scripts/embed_fonts.sh "<google-fonts-url>" > fonts.css`,
-   then paste that block in place of the `@import` so the fonts are exact and offline-safe.
+3. Embed every image as a `data:` URI so the file is self-contained: run
+   `scripts/embed_image.sh "<url-or-path>" [max_px]` and paste its output. Prefer
+   official/public-domain sources. If the design uses web fonts, embed them too:
+   `scripts/embed_fonts.sh "<google-fonts-url>" > fonts.css`, then paste that block in place of
+   the `@import` so the fonts are exact and offline-safe.
 4. Run the check: `bash scripts/check_print.sh "<file.html>"`. All three signals must PASS: true
    content height (under ~9.8in, with headroom), screen document height, and print page count. Then
    Read the two PNGs and confirm colors are present (not black), columns intact, nothing clipped.
