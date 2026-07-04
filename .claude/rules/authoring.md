@@ -35,3 +35,6 @@ and nothing gets committed there unless Ash asks.
   the failure in prose instead of quoting it.
 - All config prose follows `.claude/rules/writing.md` (plain punctuation, no
   AI-slop tells).
+- A new skill, rule, or script that persists data states where its records live
+  and which trackers tier they belong to (notes-as-record or canonical-files)
+  before it ships. The decision rule is in `.claude/rules/trackers.md`.

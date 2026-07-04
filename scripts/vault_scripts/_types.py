@@ -620,3 +620,67 @@ class VenueOutcome:
     # Distinguishes "updates computed, file written" from "updates computed,
     # write=False (dry-run)". Callers need both states to render correctly.
     written: bool = False
+
+
+# --- Trackers data layer: datasets config (db) + Strava API (strava) ---
+
+
+class DatasetsConfig(_ExtraIgnore):
+    """``datasets.json``: dataset/table name -> vault-relative glob of canonical
+    JSONL files (trackers framework, canonical-files tier)."""
+
+    datasets: dict[str, str] = {}
+
+
+class StravaToken(_ExtraIgnore):
+    """POST /oauth/token response; also the stored STRAVA_TOKEN_JSON shape."""
+
+    access_token: str = ""
+    refresh_token: str = ""
+    expires_at: int = 0
+
+
+class StravaActivity(_ExtraIgnore):
+    """One SummaryActivity from GET /api/v3/athlete/activities."""
+
+    id: int = 0
+    name: str = ""
+    sport_type: str = ""
+    start_date: str = ""
+    start_date_local: str = ""
+    moving_time: int = 0
+    distance: float = 0.0
+    total_elevation_gain: float = 0.0
+    average_heartrate: float | None = None
+    max_heartrate: float | None = None
+
+
+class StravaRawPage(RootModel[list[dict[str, object]]]):
+    """One activities page kept as raw dicts, so the raw layer preserves every
+    field the API sent (the typed model would drop unknown keys)."""
+
+
+class CanonicalSource(_ExtraIgnore):
+    """Provenance entry on a canonical row (trackers framework)."""
+
+    name: str = ""
+    source_id: str = ""
+
+
+class CanonicalActivityRow(_ExtraIgnore):
+    """One canonical row in ``Health/data/canonical/activities-<year>.jsonl``
+    (Eir layer 1). Minimal v1; the raw layer allows re-deriving richer rows.
+    Pydantic rather than TypedDict because rows are re-read from JSONL and
+    validated on every sync."""
+
+    id: str = ""
+    date: str = ""
+    start: str = ""
+    type: str = ""
+    name: str = ""
+    duration_s: int = 0
+    distance_m: float = 0.0
+    elevation_gain_m: float = 0.0
+    avg_hr: float | None = None
+    max_hr: float | None = None
+    sources: list[CanonicalSource] = []

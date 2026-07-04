@@ -20,7 +20,7 @@ Use the Daily Journal template. Sections are optional: write what's relevant, sk
 
 ## Voice attribution
 
-Every entry has two zones, separated by the `---` divider in the template.
+Every entry has two voice zones, separated by the `---` divider in the template, plus a machine zone for script-written tracker data.
 
 ### Zone 1: Ash's voice (top, default)
 
@@ -42,6 +42,13 @@ Default format is index-style:
 ```
 
 A short prose summary is fine when it adds context the wikilinks can't carry, but don't pad.
+
+### Zone 3: machine data (frontmatter + sentinel blocks)
+
+Structured tracker data (for example a training line from Eir) lands only in frontmatter
+properties and script-owned sentinel blocks (`<!-- eir:start -->` ... `<!-- eir:end -->`)
+below the divider. Scripts rewrite whole blocks in place, idempotently, and never touch
+Zone 1 or Zone 2. Conventions in `.claude/rules/trackers.md`.
 
 ### Rules of capture
 

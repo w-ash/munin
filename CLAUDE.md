@@ -9,8 +9,9 @@ Archive/           → Old/completed content moved here for reference
 Career/            → Job search materials, company research, portfolio pieces
 Daily/             → Daily journal entries
 Finance/           → Budget, bills, financial planning
-Health/            → Fitness logs, health tracking, goals
+Health/            → Fitness logs, health tracking, goals; provider notes (#provider) in Providers/entries/ (Providers.base)
 Ideas/             → Explorations, things to investigate
+Meta/              → Human-facing docs on how the vault + its tooling are structured (storage framework: Trackers.md; data-placement rule: .claude/rules/trackers.md)
 Ontology/          → Knowledge notes (#ontology) in entries/, sources (#source) in sources/ (Entries.base, Sources.base)
 People/            → Person notes (#person) in entries/ (People.base)
 Pets/              → Pet notes (#pet) in entries/ (Pets.base)
@@ -48,6 +49,7 @@ Full reference: `obsidian:obsidian-cli` skill.
 `.base` files create database-like table views over vault notes. They filter by tag (e.g. `file.hasTag("restaurant")`) or by folder (`file.inFolder(...)`, which includes subfolders), display properties as columns, and support formula columns and per-view filters. Used in:
 - `People/`: People.base · `Pets/`: Pets.base
 - `Restaurants/`: All Restaurants.base · `Shops/`: All Shops.base
+- `Health/Providers/`: Providers.base
 - `Ontology/`: Entries.base, Sources.base
 - `Travel/<Trip>/`: per-trip Destinations, Experiences, Dining, Shopping comparison tables
 

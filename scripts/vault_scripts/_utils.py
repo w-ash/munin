@@ -11,6 +11,7 @@ import argparse
 from collections.abc import Callable
 import functools
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -243,6 +244,13 @@ def yaml_scalar(value: object) -> str:
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
+    if isinstance(value, float) and math.isfinite(value):
+        # Bare (unquoted) so Obsidian reads a number property, not a string.
+        # str(int(...)) drops a trailing ".0"; repr keeps full precision (``%g``
+        # truncates to 6 significant figures and flips to scientific notation).
+        return str(int(value)) if value.is_integer() else repr(value)
+    # inf/nan have no bare YAML numeric form; they fall through to the quoted
+    # string path below so the value survives as text instead of a broken number.
     if not value:
         return '""'
     # Escape backslashes before quotes so a value like ``C:\temp`` or a trailing
@@ -309,6 +317,10 @@ def insert_field_after(
 
 def insert_before_closing_fence(text: str, field: str, value: object) -> str:
     """Insert a field before the closing --- of frontmatter."""
+    if not text.startswith("---"):
+        # No frontmatter block: never treat a body ``---`` rule as a fence, which
+        # would synthesize bogus frontmatter and drop the prose above it.
+        return text
     parts = text.split("---", 2)
     if len(parts) >= _FM_PARTS_EXPECTED:
         fm = parts[1].rstrip("\n")

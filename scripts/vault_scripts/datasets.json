@@ -1,0 +1,5 @@
+{
+  "datasets": {
+    "activities": "Health/data/canonical/activities-*.jsonl"
+  }
+}
