@@ -157,6 +157,17 @@ wikimedia_retry = retry(
 )
 
 
+# Citation checks sweep dozens of unrelated hosts; a slow or flaky one should
+# cost seconds, not a full backoff budget, and the caller records the failure
+# as "unfetchable" rather than aborting the sweep.
+citation_retry = retry(
+    stop=stop_after_attempt(3),
+    wait=WaitRetryAfter(wait_random_exponential(multiplier=1, max=8)),
+    retry=retry_if_exception_type(_RETRYABLE),
+    reraise=True,
+)
+
+
 def _parse_retry_after(resp: requests.Response) -> float | None:
     """Parse a ``Retry-After`` header (RFC 7231): integer seconds or an HTTP-date.
     Returns the delay in seconds (never negative), or None when absent/unparseable.
@@ -226,6 +237,24 @@ def request_validated_json[M: BaseModel](
     if ok is not None and not ok(resp):
         raise OverpassBusyError("response predicate failed")
     return response_model.model_validate_json(resp.content)
+
+
+def request_page(
+    url: str,
+    *,
+    timeout: int,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
+    """GET a page for citation checking; returns ``(status_code, content_type,
+    text)``. Raises :class:`TransientHTTPError` on 429/5xx so a tenacity
+    decorator can retry, but returns hard 4xx instead of raising: for citation
+    liveness a 404 is the finding (dead link), not a failure."""
+    resp = requests.get(url, timeout=timeout, headers=headers)
+    if resp.status_code == _TOO_MANY_REQUESTS or resp.status_code >= _SERVER_ERROR:
+        raise TransientHTTPError(
+            f"HTTP {resp.status_code}", retry_after=_parse_retry_after(resp)
+        )
+    return resp.status_code, resp.headers.get("Content-Type", ""), resp.text
 
 
 def request_image_bytes(

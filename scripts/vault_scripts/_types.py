@@ -684,3 +684,195 @@ class CanonicalActivityRow(_ExtraIgnore):
     avg_hr: float | None = None
     max_hr: float | None = None
     sources: list[CanonicalSource] = []
+
+
+# --- Evidence scoring (deep-research weight-of-evidence; see .claude/rules/evidence.md) ---
+
+SourceTier = Literal["primary", "secondary", "weak", "community"]
+Strength = Literal["weak", "moderate", "strong"]
+Bearing = Literal["supports", "refutes"]
+Band = Literal[
+    "refuted", "speculative", "tentative", "likely", "confident", "established"
+]
+
+
+class EvidenceItem(_ExtraIgnore):
+    """One sourced observation bearing on a claim, appended to a run shard the
+    moment a research agent produces it (write-as-you-go durability). Re-read and
+    validated from JSONL on merge/score, so it is Pydantic (boundary), not a
+    TypedDict. The load-bearing fields are required; a shard line missing one is
+    skipped with a reported count on merge/score and rejected on ``append``.
+
+    ``v`` stamps the schema version on every written line so a future breaking
+    change can refuse stale shards deliberately instead of misreading them."""
+
+    claim_id: str
+    source_url: str
+    source_tier: SourceTier
+    bearing: Bearing
+    strength: Strength = "moderate"
+    claim: str = ""
+    quote: str = ""
+    agent_id: str = ""
+    note: str = ""
+    v: int = 2
+
+
+class ScoreDriver(TypedDict):
+    """One source's signed contribution to a claim's certainty, in decibans."""
+
+    source_url: str
+    source_tier: SourceTier
+    bearing: Bearing
+    decibans: float
+
+
+class ClaimVerdict(TypedDict):
+    """Scored certainty for one claim (internal dict shape we emit)."""
+
+    claim_id: str
+    claim: str
+    certainty: float
+    band: Band
+    net_decibans: float
+    n_sources: int
+    capped: bool
+    drivers: list[ScoreDriver]
+
+
+CitationStatus = Literal["verified", "quote_missing", "dead", "unfetchable", "no_quote"]
+
+
+class CitationRecord(_ExtraIgnore):
+    """Mechanical check of one unique (source_url, quote) pair: is the URL alive,
+    and does the quoted text actually appear on the page (or its Wayback snapshot)?
+    Re-read from ``citations.jsonl`` at score time, so Pydantic (boundary).
+
+    - ``verified``: quote found on the live page, or on an archived snapshot when
+      the live page is gone or changed (``archived`` marks the latter).
+    - ``quote_missing``: page (and snapshot, when one exists) fetched fine but the
+      quote is not there; the strongest fabrication signal we can get mechanically.
+    - ``dead``: URL unreachable (hard 404/410 class) and no usable snapshot.
+    - ``unfetchable``: could not judge (bot-blocked, timeout, non-text content).
+    - ``no_quote``: the evidence item carried no quote, so there is nothing to check.
+    """
+
+    source_url: str
+    quote: str = ""
+    status: CitationStatus
+    http_status: int | None = None
+    archived: bool = False
+    checked_at: str = ""
+    v: int = 2
+
+
+class CitationCacheEntry(_ExtraIgnore):
+    """Cached HTTP response for citation checking (one file per URL hash), so a
+    resumed or re-run verification pass does not refetch every source."""
+
+    status_code: int
+    content_type: str = ""
+    text: str = ""
+
+
+class WaybackSnapshot(_ExtraIgnore):
+    """One snapshot entry in the Wayback availability API response."""
+
+    available: bool = False
+    url: str = ""
+
+
+class WaybackClosest(_ExtraIgnore):
+    """``archived_snapshots`` object in the Wayback availability API response."""
+
+    closest: WaybackSnapshot | None = None
+
+
+class WaybackAvailable(_ExtraIgnore):
+    """Response of https://archive.org/wayback/available (liveness fallback)."""
+
+    archived_snapshots: WaybackClosest = WaybackClosest()
+
+
+# --- Ranking rubric (scored-research ranking mode; see .claude/rules/evidence.md) ---
+
+CriterionTier = Literal["blocker", "must", "should", "nice"]
+
+
+class RubricCriterion(_ExtraIgnore):
+    """One criterion in a ranking rubric. ``weight`` sets its share of the fit
+    score; ``tier`` sets its gating role (a failing ``blocker`` caps the whole
+    candidate; ``blocker``/``must`` criteria are the load-bearing set used for
+    weakest-link and evidence-gap reporting)."""
+
+    id: str
+    text: str = ""
+    weight: float = 1.0
+    tier: CriterionTier = "should"
+
+
+class RubricCandidate(_ExtraIgnore):
+    """One option being ranked. ``id`` is the kebab-case slug used in grid claim
+    ids (``<candidate>--<criterion>``); ``name`` is the display name."""
+
+    id: str
+    name: str = ""
+
+
+class Rubric(_ExtraIgnore):
+    """A ranking rubric: candidates scored against weighted criteria. Each grid
+    cell is an ordinary claim (``<candidate.id>--<criterion.id>``) scored by the
+    same weight-of-evidence engine as any other claim; the rubric only defines
+    how per-cell certainties roll up into a per-candidate fit score."""
+
+    criteria: list[RubricCriterion]
+    candidates: list[RubricCandidate]
+    blocker_threshold: float = 50.0
+
+
+class ManifestClaim(_ExtraIgnore):
+    """One registered claim in a research manifest."""
+
+    id: str
+    text: str = ""
+
+
+class ResearchManifest(_ExtraIgnore):
+    """Durable record of a scored-research run's scope, written to
+    ``<run-dir>/manifest.json`` by the scope phase. Registers the claim ids every
+    agent must share (``check`` reconciles shards against it), carries the rubric
+    in ranking mode, and pins the question so a resumed run can be sanity-checked
+    against the directory it is resuming into."""
+
+    question: str
+    facets: list[str] = []
+    claims: list[ManifestClaim] = []
+    rubric: Rubric | None = None
+    queries: list[list[str]] = []
+    run_id: str = ""
+    v: int = 2
+
+
+class CriterionScore(TypedDict):
+    """One rubric cell's scored certainty inside a candidate verdict."""
+
+    criterion_id: str
+    tier: CriterionTier
+    weight: float
+    certainty: float
+    band: Band
+    n_sources: int
+    capped: bool
+
+
+class CandidateVerdict(TypedDict):
+    """Ranked fit verdict for one candidate (internal dict shape we emit)."""
+
+    candidate_id: str
+    candidate: str
+    score: float
+    blocked: bool
+    blocked_by: list[str]
+    least_resolved: str
+    evidence_gaps: list[str]
+    criteria: list[CriterionScore]
