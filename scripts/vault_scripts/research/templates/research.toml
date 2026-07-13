@@ -1,0 +1,39 @@
+# Topic config for the `research` CLI. Not a secret; travels with the topic.
+
+[topic]
+slug = "{{TOPIC_SLUG}}"
+title = "{{TOPIC_TITLE}}"
+# The research shape: "map" (how does this space break down), "verify" (are
+# these claims true), "rank" (which candidate is best), "find" (every entity
+# matching a filter), or "estimate" (how big / how much). The mode picks the
+# store schema and scorer; it is recorded here so a rerun reproduces the
+# choice, and it is revisable at a taxonomy audit.
+mode = "{{MODE}}"
+# The unit of analysis, singular: "company", "plan", "vendor", "paper".
+unit_noun = "unit"
+# Taxonomy id prefix: category ids are C1, C2, ... (or R1 ... with prefix "R").
+category_prefix = "C"
+# Canonical unit strings, in queue order. When non-empty, `vault-tool research check`
+# rejects evidence whose unit is not in this list; keep it in lockstep with
+# the HANDOFF queue as passes rotate.
+units = []
+
+[confidence]
+# v3 falsifiable model: max(0, min(cap, step x supporting) - step x diverging).
+# Tune step up when the unit population is small.
+step = 0.10
+cap = 0.95
+# A category with no primary source is held at this ceiling, so "High" (>= 85%)
+# always rests on a primary source. primary_source_types names the source_type
+# values (from the finder prompt) that count as primary; a validated row in
+# data/individuals.csv also clears the bar.
+primary_ceiling = 0.84
+primary_source_types = ["Primary source"]
+
+[sheets]
+# The Google Sheet mirror for sharing. Create a Sheet, copy the id from its
+# URL (/spreadsheets/d/<id>/), and paste it here. The tool never creates or
+# owns the Sheet, and the push is one-way: treat the Sheet as read-only.
+sheet_id = ""
+# "oauth" acts as the signed-in user; "service" uses the service-account key.
+auth = "oauth"

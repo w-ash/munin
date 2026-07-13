@@ -1,0 +1,32 @@
+# Topic config for the `research` CLI. Not a secret; travels with the topic.
+
+[topic]
+slug = "{{TOPIC_SLUG}}"
+title = "{{TOPIC_TITLE}}"
+# The research shape. This is a "find" topic: enumerate every entity matching a
+# filter, with its attributes. The mode picks the store schema (entities.csv +
+# attributes.csv + evidence.csv keyed by cell) and the coverage scorer; it is
+# recorded here so a rerun reproduces the choice, and it is revisable at an audit.
+mode = "{{MODE}}"
+# The unit of analysis, singular: here an "entity".
+unit_noun = "entity"
+# Entity id prefix: entity ids are E1, E2, ...
+category_prefix = "E"
+
+[find]
+# The named, bounded population being enumerated. State it precisely enough that
+# "complete" is decidable and a coverage gap is nameable, e.g. "people matching
+# user-type X at the top 100 companies in category Y".
+frame = "{{FRAME_DEFINITION}}"
+# The frame's size, if known (e.g. 100 for "top 100 companies"). When set, the
+# scorer reports recall = found / expected_count. Leave blank when the roster is
+# not a known-size set; the scorer then reads the per-pass saturation curve
+# instead. Do not guess a number to manufacture a recall figure.
+expected_count = ""
+
+[sheets]
+# The Google Sheet mirror for sharing. Create a Sheet, copy the id from its
+# URL (/spreadsheets/d/<id>/), and paste it here. The tool never creates or
+# owns the Sheet, and the push is one-way: treat the Sheet as read-only.
+sheet_id = ""
+auth = "oauth"

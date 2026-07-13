@@ -8,6 +8,7 @@ paths:
   - "Concerts/**"
   - "Weekends/**"
   - "Health/**"
+  - "Homes/**"
   - "People/**"
   - "Restaurants/**"
   - "Shops/**"
@@ -48,6 +49,10 @@ captured lazily gets deferred, not tooled: no new capture chores.
 
 - Core frontmatter: `created: "YYYY-MM-DD"`, one domain tag, `status` where a
   lifecycle exists, bare dates for date fields (`date`, `last_<verb>`).
+- Editing frontmatter: one note → the Edit tool (exact-string, preserves quoting);
+  many notes → `vault-tool fm set <path…> key=value [key:int=N] [--after F] [--write]`
+  (dry-run by default). Never `obsidian property:set` for writes: it reserializes the
+  whole block and unquotes `created`, `coordinates`, and every other string field.
 - New domains use `snake_case` property names. Restaurants keeps its existing
   kebab-case fields; no retrofits.
 - Imported records carry provenance, and importers match on it before creating

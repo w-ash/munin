@@ -220,21 +220,33 @@ def add_sheet(spreadsheet_id: str, title: str) -> bool:
     return True
 
 
+def batch_update(
+    spreadsheet_id: str,
+    requests: list[dict[str, object]],
+    *,
+    idempotent: bool = True,
+) -> BatchUpdateSpreadsheetResponse:
+    """Issue a multi-request ``spreadsheets.batchUpdate`` in one atomic call, e.g.
+    grouping resize + freeze + number-format requests for a mirror push.
+    ``idempotent=False`` for requests that create new objects (e.g. DuplicateSheet)."""
+    return _sheets_request(
+        "POST",
+        f"{SHEETS_BASE}/{spreadsheet_id}:batchUpdate",
+        json={"requests": requests},
+        response_model=BatchUpdateSpreadsheetResponse,
+        idempotent=idempotent,
+    )
+
+
 def _batch_update(
     spreadsheet_id: str,
     request: dict[str, object],
     *,
     idempotent: bool = True,
 ) -> BatchUpdateSpreadsheetResponse:
-    """Issue a single-request ``spreadsheets.batchUpdate``. ``idempotent=False``
-    for requests that create new objects (e.g. DuplicateSheet)."""
-    return _sheets_request(
-        "POST",
-        f"{SHEETS_BASE}/{spreadsheet_id}:batchUpdate",
-        json={"requests": [request]},
-        response_model=BatchUpdateSpreadsheetResponse,
-        idempotent=idempotent,
-    )
+    """Issue a single-request ``spreadsheets.batchUpdate`` (see :func:`batch_update`).
+    ``idempotent=False`` for requests that create new objects (e.g. DuplicateSheet)."""
+    return batch_update(spreadsheet_id, [request], idempotent=idempotent)
 
 
 def rename_sheet(

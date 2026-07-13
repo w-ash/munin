@@ -9,7 +9,8 @@ Archive/           → Old/completed content moved here for reference
 Career/            → Job search materials, company research, portfolio pieces
 Daily/             → Daily journal entries
 Finance/           → Budget, bills, financial planning
-Health/            → Fitness logs, health tracking, goals; provider notes (#provider) in Providers/entries/ (Providers.base)
+Health/            → Fitness logs, health tracking, goals; provider notes (#provider) in Providers/entries/ (Providers.base); supplement notes (#supplement) in Supplements/entries/ (Supplements.base), regimen hub Stack.md
+Homes/             → Candidate home-buy notes (#home) in entries/ (Homes.base); shared rubric + weights in Criteria.md
 Ideas/             → Explorations, things to investigate
 Meta/              → Human-facing docs on how the vault + its tooling are structured (storage framework: Trackers.md; data-placement rule: .claude/rules/trackers.md)
 Ontology/          → Knowledge notes (#ontology) in entries/, sources (#source) in sources/ (Entries.base, Sources.base)
@@ -35,7 +36,7 @@ created: "YYYY-MM-DD"
 
 ## Obsidian CLI
 
-CLI 1.12+ at `/usr/local/bin/obsidian`. Prefer it for moves, renames, property edits, and base queries. Preserves wikilinks + index.
+CLI 1.12+ at `/usr/local/bin/obsidian`. Prefer it for moves, renames, and base queries (preserves wikilinks + index). Frontmatter writes go through `vault-tool fm` or the Edit tool, never `property:set` (which reserializes the block and drops convention quotes).
 
 - **`key=value`, not `--flag`.** See rule #9.
 - **`create` takes `name=` or `path=`, not `file=`**. `file=` is for existing files; on `create` it drops and you get `Untitled.md`.
@@ -49,7 +50,7 @@ Full reference: `obsidian:obsidian-cli` skill.
 `.base` files create database-like table views over vault notes. They filter by tag (e.g. `file.hasTag("restaurant")`) or by folder (`file.inFolder(...)`, which includes subfolders), display properties as columns, and support formula columns and per-view filters. Used in:
 - `People/`: People.base · `Pets/`: Pets.base
 - `Restaurants/`: All Restaurants.base · `Shops/`: All Shops.base
-- `Health/Providers/`: Providers.base
+- `Health/Providers/`: Providers.base · `Health/Supplements/`: Supplements.base
 - `Ontology/`: Entries.base, Sources.base
 - `Travel/<Trip>/`: per-trip Destinations, Experiences, Dining, Shopping comparison tables
 

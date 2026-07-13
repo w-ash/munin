@@ -42,7 +42,7 @@ Add new models / TypedDicts / dataclasses to `_types.py`, not to entry-point scr
 - **Env**: `require_env("NAME")` from `_utils`. Never load `.env` in Python; the dispatcher handles it.
 - **CLI**: argparse with a typed `_Args(argparse.Namespace)` subclass; parse via `parse_typed_args(parser, _Args)` to avoid per-field `# pyright: ignore`.
 - **File discovery**: `find_entry_files()` returns `(path, post, category, raw_text)`; don't re-read.
-- **Frontmatter I/O**: `patch_field`, `insert_field_after`, `yaml_scalar` from `_utils`.
+- **Frontmatter I/O**: `patch_field`, `insert_field_after`, `yaml_scalar` from `_utils`; `fm.py` is the CLI over them (`vault-tool fm set`) for bulk edits from outside Python.
 - **iCloud write races**: the vault syncs through iCloud, so rapid writes to one file (a Write plus a `geocode` pass plus follow-up Edits in the same turn) can race and corrupt frontmatter (doubled keys, truncated body). Sequence writes to the same file, spot-check after batch runs (`grep -c` on keys that should appear once, `wc -l`), and recover a corrupted file with one full Write, not piecemeal Edits.
 - **Batch `obsidian move`**: moving many files into a freshly created folder can leave the first few unindexed (correct on disk, missing from Bases views and `search`). Verify the batch landed with `obsidian search` or a tag-filtered `base:query` (folder-relative filters return nothing headless; see `.claude/rules/bases.md`), and re-move stragglers to re-trigger indexing.
 

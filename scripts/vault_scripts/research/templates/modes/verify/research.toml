@@ -1,0 +1,31 @@
+# Topic config for the `research` CLI. Not a secret; travels with the topic.
+
+[topic]
+slug = "{{TOPIC_SLUG}}"
+title = "{{TOPIC_TITLE}}"
+# The research shape. This is a "verify" topic: are these claims true? The mode
+# picks the store schema (claims.csv + source-graded evidence.csv) and the
+# certainty scorer; it is recorded here so a rerun reproduces the choice, and
+# it is revisable at an audit.
+mode = "{{MODE}}"
+# The unit of analysis, singular: here a "claim".
+unit_noun = "claim"
+# Claim id prefix: claim ids are CL1, CL2, ...
+category_prefix = "CL"
+
+[verify]
+# Source-weighted certainty as additive log-odds (decibans). Defaults are the
+# munin convention; tune only with reason.
+# prior: starting probability before any evidence (0.5 = no lean).
+prior = 0.5
+# ceiling: a claim with no *supporting* source of ceiling_tier cannot exceed
+# this certainty (%), so the top bands always rest on a primary source.
+ceiling = 74.0
+ceiling_tier = "primary"
+
+[sheets]
+# The Google Sheet mirror for sharing. Create a Sheet, copy the id from its
+# URL (/spreadsheets/d/<id>/), and paste it here. The tool never creates or
+# owns the Sheet, and the push is one-way: treat the Sheet as read-only.
+sheet_id = ""
+auth = "oauth"

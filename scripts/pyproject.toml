@@ -102,6 +102,11 @@ fixable = ["ALL"]
     "PT011",
     "ERA001",
 ]
+# The research engine tests assert deterministic computed floats (scores, bands,
+# intervals) against exact expected values; exact `==` is correct here because the
+# math is fixed-input, fixed-output. RUF069 (fragile float equality) is scoped off
+# for these vendored tests only; munin's own tests keep the check.
+"tests/test_research_*.py" = ["RUF069"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["vault_scripts"]

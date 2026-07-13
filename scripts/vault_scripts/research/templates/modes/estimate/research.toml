@@ -1,0 +1,34 @@
+# Topic config for the `research` CLI. Not a secret; travels with the topic.
+
+[topic]
+slug = "{{TOPIC_SLUG}}"
+title = "{{TOPIC_TITLE}}"
+# The research shape. This is an "estimate" topic: how big / how much, now? The
+# mode picks the store schema (factors.csv + evidence.csv) and the magnitude
+# scorer; it is recorded here so a rerun reproduces the choice, and it is
+# revisable at an audit. Scope to present-state sizing; forward prediction is a
+# separate (deferred) shape.
+mode = "{{MODE}}"
+# The unit of analysis, singular: here a "factor".
+unit_noun = "factor"
+# Factor id prefix: factor ids are F1, F2, ...
+category_prefix = "F"
+
+[estimate]
+# The target is decomposed into factors, each a lognormal read from a low/high
+# 90% interval. A pure product/quotient propagates analytically (exact); a
+# decomposition with add/sub terms falls back to seeded Monte Carlo.
+# ci: the reported interval width, percent (90 = a 5th-to-95th-percentile band).
+ci = 90.0
+# mc_samples / mc_seed: draws and fixed seed for the Monte Carlo fallback. The
+# seed is fixed so the estimate is reproducible run to run; change it only to
+# check the result is not seed-sensitive.
+mc_samples = 10000
+mc_seed = 1729
+
+[sheets]
+# The Google Sheet mirror for sharing. Create a Sheet, copy the id from its
+# URL (/spreadsheets/d/<id>/), and paste it here. The tool never creates or
+# owns the Sheet, and the push is one-way: treat the Sheet as read-only.
+sheet_id = ""
+auth = "oauth"

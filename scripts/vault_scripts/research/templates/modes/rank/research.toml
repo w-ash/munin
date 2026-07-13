@@ -1,0 +1,33 @@
+# Topic config for the `research` CLI. Not a secret; travels with the topic.
+
+[topic]
+slug = "{{TOPIC_SLUG}}"
+title = "{{TOPIC_TITLE}}"
+# The research shape. This is a "rank" topic: which candidate is best? The mode
+# picks the store schema (candidates.csv + weighted criteria.csv + cell-keyed
+# evidence.csv) and the rubric scorer; it is recorded here so a rerun
+# reproduces the choice, and it is revisable at an audit.
+mode = "{{MODE}}"
+# The unit of analysis, singular: here a "candidate".
+unit_noun = "candidate"
+category_prefix = "C"
+
+[verify]
+# rank reuses verify's per-cell certainty engine (decibans), so it shares these
+# parameters. See the verify docs for the model.
+prior = 0.5
+ceiling = 74.0
+ceiling_tier = "primary"
+
+[rank]
+# A `blocker`-tier criterion scoring below this certainty (%) marks the
+# candidate blocked and caps its fit; a blocked candidate never outranks a
+# clean one.
+blocker_threshold = 50.0
+
+[sheets]
+# The Google Sheet mirror for sharing. Create a Sheet, copy the id from its
+# URL (/spreadsheets/d/<id>/), and paste it here. The tool never creates or
+# owns the Sheet, and the push is one-way: treat the Sheet as read-only.
+sheet_id = ""
+auth = "oauth"

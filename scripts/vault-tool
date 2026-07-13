@@ -43,15 +43,22 @@ run() {
 }
 
 # Fast path: if the user passed a known runnable module, exec without scanning.
-# Private modules (_*.py) are library-only; we never expose them.
-if [[ $# -gt 0 && "$1" != _* && -f "$PKG_DIR/$1.py" ]]; then
+# Private modules (_*.py) are library-only; we never expose them. A module is
+# either a top-level <name>.py or a package <name>/ with a __main__.py.
+if [[ $# -gt 0 && "$1" != _* ]] \
+   && { [[ -f "$PKG_DIR/$1.py" ]] || [[ -f "$PKG_DIR/$1/__main__.py" ]]; }; then
   run "$@"
 fi
 
-# Slow path: discover runnable modules for usage / unknown-module errors.
+# Slow path: discover runnable modules for usage / unknown-module errors, both
+# top-level scripts and packages that carry a __main__.py.
 MODULES="$(
-  find "$PKG_DIR" -maxdepth 1 -name '*.py' ! -name '_*' \
-    -exec basename {} .py \; | sort
+  {
+    find "$PKG_DIR" -maxdepth 1 -name '*.py' ! -name '_*' -exec basename {} .py \;
+    find "$PKG_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '_*' \
+      -exec test -f '{}/__main__.py' \; -print \
+      | xargs -n1 basename
+  } | sort
 )"
 
 usage() {
