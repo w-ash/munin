@@ -25,7 +25,7 @@ Travel/            → Trip planning; one folder per trip with a hub note + cate
 Work/              → Work notes (staging; move to work vault when ready)
 ```
 
-Entity folders share one shape: a `<Name>.base` at the folder root over an `entries/` subfolder holding the tagged notes (People, Pets, Restaurants, Shops, Ontology).
+Entity folders share one shape: a `<Name>.base` at the folder root over an `entries/` subfolder holding the tagged notes (People, Pets, Restaurants, Shops, Ontology, Homes).
 
 ## Frontmatter Convention
 
@@ -51,6 +51,7 @@ Full reference: `obsidian:obsidian-cli` skill.
 - `People/`: People.base · `Pets/`: Pets.base
 - `Restaurants/`: All Restaurants.base · `Shops/`: All Shops.base
 - `Health/Providers/`: Providers.base · `Health/Supplements/`: Supplements.base
+- `Homes/`: Homes.base (candidate homes; rubric + weights in Criteria.md)
 - `Ontology/`: Entries.base, Sources.base
 - `Travel/<Trip>/`: per-trip Destinations, Experiences, Dining, Shopping comparison tables
 
