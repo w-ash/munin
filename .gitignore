@@ -14,6 +14,19 @@ scripts/**/__pycache__/
 # Runtime debug data — recreated on each geocode run
 scripts/vault_scripts/geocode_errors.json
 
+# Research stores never enter git: they live in ~/.local/share/vault-research/, and
+# `research new` refuses to scaffold into a repo. Belt in case a store is ever created
+# here by hand, while keeping the packaged topic templates.
+**/research.toml
+!scripts/vault_scripts/research/templates/**/research.toml
+**/data/evidence.csv
+**/data/citations.csv
+**/data/waivers.csv
+**/data/entities.csv
+**/data/claims.csv
+**/data/candidates.csv
+**/data/factors.csv
+
 # Per-machine Claude Code config
 .claude/settings.local.json
 

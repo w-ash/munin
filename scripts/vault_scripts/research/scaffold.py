@@ -21,12 +21,49 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.resources import files
 from importlib.resources.abc import Traversable
+import os
 from pathlib import Path
 import re
 
 from vault_scripts.research.store import DATA_DIR, MODE_SCHEMAS, validate_mode
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+# iCloud syncs everything under this container; a frequently-appended store
+# there hits the write race the harness exists to avoid, so it is refused.
+_ICLOUD_ROOT = Path.home() / "Library" / "Mobile Documents"
+
+
+def default_data_home() -> Path:
+    """The research store home, outside any repo or the iCloud vault:
+    ``$XDG_DATA_HOME/vault-research`` (default ``~/.local/share/vault-research``).
+    Making this the ``--dest`` default keeps the safe location the easy one."""
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return base / "vault-research"
+
+
+def _reject_polluting_dest(dest: Path) -> None:
+    """Refuse a destination inside a git working tree or the iCloud vault.
+
+    Research data must never live in the munin tool repo (it is public) or any
+    other repo, and never in the iCloud-synced vault. This turns those rules
+    from convention into a guard that aborts before writing a store."""
+    resolved = dest.expanduser().resolve()
+    if resolved == _ICLOUD_ROOT or _ICLOUD_ROOT in resolved.parents:
+        raise ValueError(
+            f"refusing to create a research store inside the iCloud tree "
+            f"({resolved}); stores live outside iCloud (default "
+            f"{default_data_home()}). Pass a --dest under your data home."
+        )
+    for parent in (resolved, *resolved.parents):
+        if (parent / ".git").exists():
+            raise ValueError(
+                f"refusing to create a research store inside the git working "
+                f"tree at {parent} ({resolved}); research data must never be "
+                f"committed. Pass a --dest outside any repo (default "
+                f"{default_data_home()})."
+            )
 
 
 @dataclass(frozen=True)
@@ -69,6 +106,7 @@ def create_topic(slug: str, title: str, dest: Path, mode: str = "map") -> Create
     if not SLUG_RE.fullmatch(slug):
         raise ValueError(f"slug must be kebab-case ([a-z0-9-]), got {slug!r}")
     validate_mode(mode)  # before any file is written
+    _reject_polluting_dest(dest)  # never scaffold a store into a repo or iCloud
     target = dest / slug
     if target.exists():
         raise FileExistsError(f"{target} already exists; refusing to overwrite")

@@ -12,6 +12,7 @@ Subcommands:
     research status [--dir DIR]                alias of score
     research calibrate [--dir DIR]             check scores against data/gold.csv
     research verify [--dir DIR] [--timeout N] [--no-cache]   check cited quotes
+    research render [--dir DIR] [--dry-run] [--verify]   store -> gated vault note
     research sync [--dir DIR] [--dry-run] [--force]   push to the Google Sheet
 
 `score` dispatches on the topic's recorded mode (score.MODE_SCORERS); for a
@@ -23,6 +24,7 @@ import argparse
 from pathlib import Path
 
 from vault_scripts.research import (
+    render as render_mod,
     scaffold,
     score as score_mod,
     store as store_mod,
@@ -139,6 +141,74 @@ def cmd_verify(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_render(args: argparse.Namespace) -> None:
+    """Project the verified store into its vault note, gated resolve-or-waive.
+
+    The note is a projection of the store, never hand-authored: render refuses
+    unless there is cited evidence and every cited row is verified or waived.
+    ``--dry-run`` reports the gate verdict without writing; ``--verify`` runs a
+    fresh citation check first so the gate sees current verdicts."""
+    topic = _load_checked(Path(args.dir))
+    mode = topic.config.mode
+    if mode not in render_mod.MODE_RENDERERS:
+        emit_error(
+            f"research render does not support {mode!r} topics yet "
+            f"(supported: {', '.join(sorted(render_mod.MODE_RENDERERS))})"
+        )
+    if args.verify:
+        cache_dir = None if args.no_cache else verify.default_cache_dir(topic)
+        records, _counts = verify.verify_topic(
+            topic, cache_dir=cache_dir, timeout=args.timeout
+        )
+        if records:
+            verify.write_citations(topic, records)
+        topic = store_mod.load_topic(Path(args.dir))  # reload the fresh citations
+
+    gate = render_mod.evaluate_gate(topic)
+    if args.dry_run:
+        verdict = "would render" if gate.ok else "would block"
+        log(
+            f"{verdict}: {gate.n_verified} verified, {gate.n_waived} waived, "
+            f"{len(gate.blocking)} blocking of {gate.n_citable} cited row(s)"
+        )
+        for b in gate.blocking:
+            log(f"  blocking {b.evidence_id} [{b.bucket}] {b.source_url}")
+        emit_result(
+            status="dry-run",
+            topic=topic.config.title,
+            would_pass=gate.ok,
+            gate=gate.as_dict(),
+            counts=store_mod.counts(topic),
+        )
+        return
+
+    if not gate.ok:
+        reason = (
+            "the store has no cited evidence to render"
+            if gate.n_citable == 0
+            else f"{len(gate.blocking)} cited row(s) are neither verified nor waived"
+        )
+        emit_error(
+            f"render blocked: {reason}. Run `research verify`, then fix each quote "
+            "or record an exception in data/waivers.csv (evidence_id,reason,date).",
+            blocking=[b.as_dict() for b in gate.blocking],
+            gate=gate.as_dict(),
+        )
+
+    block = render_mod.build_evidence_block(topic, gate)
+    root = render_mod.vault_root(args.vault_root)
+    path, action = render_mod.write_note(topic, root, block)
+    log(f"{action}: {path}")
+    emit_result(
+        status="rendered",
+        topic=topic.config.title,
+        note=str(path),
+        action=action,
+        gate=gate.as_dict(),
+        counts=store_mod.counts(topic),
+    )
+
+
 def cmd_new(args: argparse.Namespace) -> None:
     created = scaffold.create_topic(
         args.slug, args.title, Path(args.dest), mode=args.mode
@@ -184,7 +254,9 @@ def main() -> None:
         p_new.add_argument("slug", help="kebab-case directory name")
         p_new.add_argument("title", help="human-readable topic title")
         p_new.add_argument(
-            "--dest", default=".", help="parent directory (default: cwd)"
+            "--dest",
+            default=str(scaffold.default_data_home()),
+            help="parent directory (default: the research data home, outside any repo)",
         )
         p_new.add_argument(
             "--mode",
@@ -222,6 +294,35 @@ def main() -> None:
             help="don't persist verdicts to data/citations.csv (advisory only)",
         )
         p_verify.set_defaults(func=cmd_verify)
+
+        p_render = sub.add_parser(
+            "render", help="project the verified store into its vault note (gated)"
+        )
+        p_render.add_argument(
+            "--dir", default=".", help="topic directory (default: cwd)"
+        )
+        p_render.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="report the gate verdict without writing the note",
+        )
+        p_render.add_argument(
+            "--verify",
+            action="store_true",
+            help="run a fresh citation check first so the gate sees current verdicts",
+        )
+        p_render.add_argument(
+            "--timeout", type=float, default=20.0, help="per-request timeout, seconds"
+        )
+        p_render.add_argument(
+            "--no-cache", action="store_true", help="ignore the HTTP cache and refetch"
+        )
+        p_render.add_argument(
+            "--vault-root",
+            default=None,
+            help="vault root for a relative vault_note (default: $VAULT_DIR)",
+        )
+        p_render.set_defaults(func=cmd_render)
 
         p_sync = sub.add_parser("sync", help="push the store to its Google Sheet")
         p_sync.add_argument("--dir", default=".", help="topic directory (default: cwd)")

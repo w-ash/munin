@@ -13,6 +13,10 @@ mode = "{{MODE}}"
 unit_noun = "factor"
 # Factor id prefix: factor ids are F1, F2, ...
 category_prefix = "F"
+# The durable vault note this topic renders to, a path within the vault.
+# `vault-tool research render` projects the verified store here; leave blank
+# until you know where the note lives.
+vault_note = ""
 
 [estimate]
 # The target is decomposed into factors, each a lognormal read from a low/high

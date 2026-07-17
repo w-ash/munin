@@ -83,6 +83,7 @@ class TopicConfig:
     estimate_mc_seed: int  # estimate: fixed seed keeps Monte Carlo reproducible
     sheet_id: str
     auth: str
+    vault_note: str = ""  # render target: the note's path within the vault
 
 
 @dataclass(frozen=True)
@@ -265,6 +266,7 @@ def load_config(root: Path) -> TopicConfig:
         mode=mode,
         unit_noun=str(topic.get("unit_noun", "unit")),
         category_prefix=str(topic.get("category_prefix", "C")),
+        vault_note=str(topic.get("vault_note", "")),
         units=tuple(str(u) for u in topic.get("units", [])),
         params=ConfidenceParams(
             step=float(conf.get("step", 0.10)),

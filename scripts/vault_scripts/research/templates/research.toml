@@ -13,6 +13,10 @@ mode = "{{MODE}}"
 unit_noun = "unit"
 # Taxonomy id prefix: category ids are C1, C2, ... (or R1 ... with prefix "R").
 category_prefix = "C"
+# The durable vault note this topic renders to, as a path within the vault.
+# `vault-tool research render` projects the verified store here (never
+# hand-authored); leave blank until you know where the note lives.
+vault_note = ""
 # Canonical unit strings, in queue order. When non-empty, `vault-tool research check`
 # rejects evidence whose unit is not in this list; keep it in lockstep with
 # the HANDOFF queue as passes rotate.

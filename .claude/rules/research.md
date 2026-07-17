@@ -35,12 +35,13 @@ drift; a category or claim stays below "High" until a primary source backs it.
 `scripts/vault_scripts/research/`, invoked via `vault-tool research` (a package
 module with an `__main__.py`, which the dispatcher runs with `python -m`):
 
-- `cli.py` — the argparse surface (`new|check|score|status|calibrate|verify|sync`).
+- `cli.py` — the argparse surface (`new|check|score|status|calibrate|verify|render|sync`).
 - `store.py` — per-mode CSV schemas, topic load, and the `check` integrity gate.
 - `confidence` / `certainty` / `coverage` / `magnitude` — the per-mode scoring engines.
 - `score.py` — the mode-dispatched scorer and calibrator registry.
 - `calibration.py` — checks scores against a hand-authored `data/gold.csv`.
 - `verify.py` — mechanical citation check (quote shingles, on-disk cache, Wayback).
+- `render.py` — the store-to-note projection and the resolve-or-waive render gate (one `MODE_RENDERERS` entry per mode).
 - `mirror.py` + `sheets.py` — the one-way Google Sheet mirror.
 - `scaffold.py` + `templates/` — the topic scaffold (packaged data).
 - `_output.py` — the JSON-envelope CLI plumbing (`emit_result`/`emit_error`/`log`/`run_cli`).
@@ -51,11 +52,20 @@ A topic directory is a **working store**, not a vault note: append-only
 `data/*.csv` (canonical-files tier), a regenerated `SYNTHESIS.md`, and a
 hand-authored `narrative/`. It lives **outside iCloud** (default
 `~/.local/share/vault-research/`) because the CSVs are appended frequently and would
-hit the iCloud write race, and it is never copied into the vault. The durable,
-notes-as-record deliverable is the polished note `run-pass` lands per
-`.claude/rules/trackers.md` (Ideas/, a project folder, `Meta/`, or a trip's
-`References/`), wikilinked both ways. The HTTP fetch cache (`.http-cache/`) and the
-sync-state (`.research-sync-state.json`) are disposable dot-files inside the topic.
+hit the iCloud write race, and it is never copied into the vault. This placement is
+enforced, not just conventional: `vault-tool research new` defaults `--dest` to the
+data home and refuses a destination inside any git working tree or the iCloud vault,
+so a store can never be scaffolded into the munin repo or the vault.
+
+The durable, notes-as-record deliverable is a **projection** of the verified store,
+produced by `vault-tool research render` into the path set in
+`research.toml` `[topic] vault_note`, per `.claude/rules/trackers.md` (Ideas/, a
+project folder, `Meta/`, or a trip's `References/`), wikilinked both ways. The vault
+note is never hand-transcribed: render gates on resolve-or-waive (every cited row is
+`verified` or recorded in `data/waivers.csv` with a reason), writes a managed evidence
+block with per-claim verification marks, and preserves the hand-authored narrative
+outside the markers. The HTTP fetch cache (`.http-cache/`) and the sync-state
+(`.research-sync-state.json`) are disposable dot-files inside the topic.
 
 ## Google Sheets mirror
 

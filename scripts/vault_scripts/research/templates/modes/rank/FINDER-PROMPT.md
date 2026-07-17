@@ -16,6 +16,8 @@ CRITERIA (cell_id is {{CANDIDATE_ID}}--<criterion_id>):
 
 Use web search (and fetch promising URLs). Search-first; never assert from memory. BUDGET: aim for **at most ~15 search/fetch calls total** across all criteria; check the HANDOFF sourcing notes first, and STOP once each load-bearing criterion has a source or two. Pay most attention to `blocker` and `must` criteria; a `blocker` you cannot confirm is the finding that decides the ranking.
 
+SOURCING DISCIPLINE: quote only from a page you actually opened and read. A search-result snippet is not a source; if you did not fetch the page, do not quote it. When a page is blocked, paywalled, or will not load, leave that finding unquoted (an honest blank) rather than transcribing the snippet. Every quote is refetched by `vault-tool research verify`, which confirms the verbatim text is on the page, and a snippet-sourced quote fails that check and blocks the vault note.
+
 For each piece of evidence capture:
 - cell_id ({{CANDIDATE_ID}}--<criterion_id>)
 - bearing ("supports" | "refutes")

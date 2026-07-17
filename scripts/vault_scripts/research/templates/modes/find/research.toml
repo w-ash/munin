@@ -12,6 +12,10 @@ mode = "{{MODE}}"
 unit_noun = "entity"
 # Entity id prefix: entity ids are E1, E2, ...
 category_prefix = "E"
+# The durable vault note this topic renders to, a path within the vault.
+# `vault-tool research render` projects the verified store here; leave blank
+# until you know where the note lives.
+vault_note = ""
 
 [find]
 # The named, bounded population being enumerated. State it precisely enough that

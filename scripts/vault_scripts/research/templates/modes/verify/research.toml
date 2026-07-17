@@ -12,6 +12,10 @@ mode = "{{MODE}}"
 unit_noun = "claim"
 # Claim id prefix: claim ids are CL1, CL2, ...
 category_prefix = "CL"
+# The durable vault note this topic renders to, a path within the vault.
+# `vault-tool research render` projects the verified store here; leave blank
+# until you know where the note lives.
+vault_note = ""
 
 [verify]
 # Source-weighted certainty as additive log-odds (decibans). Defaults are the

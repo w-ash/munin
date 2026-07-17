@@ -16,9 +16,11 @@ this repo; no install needed).
 
 A topic directory is a working store (append-only `data/*.csv`, a regenerated
 `SYNTHESIS.md`, hand-authored `narrative/`), so it lives **outside iCloud**, never
-inside the vault: the default research home is `~/.local/share/vault-research/`.
-The durable, vault-facing record is the polished note the `run-pass` skill lands
-per the trackers framework, not the topic directory.
+inside the vault: the default research home is `~/.local/share/vault-research/`. This
+is enforced, not just conventional: `research new` defaults `--dest` to that home and
+refuses a destination inside any git working tree or the iCloud vault. The durable,
+vault-facing record is a projection of the verified store that the `run-pass` skill
+renders with `vault-tool research render`, not the topic directory.
 
 ## Procedure
 
@@ -38,12 +40,12 @@ per the trackers framework, not the topic directory.
    direction. All five modes are implemented. A "why did X happen" diagnosis is a
    `verify` topic with the candidate causes framed as competing claims.
 
-2. **Scaffold.** Resolve the slug (kebab-case) and title from `$ARGUMENTS`, confirm
-   the destination (default: the research home above), and run:
+2. **Scaffold.** Resolve the slug (kebab-case) and title from `$ARGUMENTS`. `--dest`
+   now defaults to the research home in the tool (and refuses a repo or the iCloud
+   vault), so pass it only to override. Run:
 
    ```bash
-   scripts/vault-tool research new <slug> "Topic Title" \
-     --dest ~/.local/share/vault-research --mode <mode>
+   scripts/vault-tool research new <slug> "Topic Title" --mode <mode>
    ```
 
    This creates the topic with templates (CLAUDE.md, HANDOFF.md, FINDER-PROMPT.md,
@@ -93,6 +95,10 @@ per the trackers framework, not the topic directory.
      `[find] frame` (and `expected_count` when the frame is a known-size set);
      `estimate` tunes `[estimate]` (`ci`, and the Monte Carlo `mc_samples`/`mc_seed`)
      only with reason.
+   - Set `[topic] vault_note` to the note's path in the vault when the destination is
+     known (per the trackers framework, e.g. a project folder, `Ideas/`, or `Meta/`);
+     `run-pass` renders the note there. Leave it blank and set it before the first
+     `research render` if the home is not decided yet.
    - If sharing is wanted now, have the user create a blank Google Sheet and set
      `[sheets] sheet_id` (and `[sheets] auth`; see the `share-research` skill).
 

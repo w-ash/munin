@@ -10,6 +10,8 @@ CLAIM ({{CLAIM_ID}}): "{{CLAIM_TEXT}}" ({{CLAIM_CONTEXT}})
 
 Use web search (and fetch promising URLs). Search-first; never assert findings from memory. BUDGET: aim for **at most ~15 search/fetch calls total**; check the HANDOFF sourcing notes first, and STOP once you have a few strong sources on each side. Additional searching past that point degrades accuracy more than it adds.
 
+SOURCING DISCIPLINE: quote only from a page you actually opened and read. A search-result snippet is not a source; if you did not fetch the page, do not quote it. When a page is blocked, paywalled, or will not load, leave that finding unquoted (an honest blank) rather than transcribing the snippet. Every quote is refetched by `vault-tool research verify`, which confirms the verbatim text is on the page, and a snippet-sourced quote fails that check and blocks the vault note.
+
 GOAL: gather evidence that **supports or refutes** this claim, favoring authoritative sources. Actively look for disconfirming evidence and for newer information that supersedes an older source. A claim that only survives because no one looked for counter-evidence is not verified.
 
 For each piece of evidence capture:

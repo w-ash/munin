@@ -13,7 +13,11 @@ Find **every** entity in your slice that matches the frame. This is a census, no
 
 {{ATTRIBUTE_BLOCK}}
 
-Use web search (and fetch promising URLs). Search-first; never assert an entity or a field from memory. For each entity capture:
+Use web search (and fetch promising URLs). Search-first; never assert an entity or a field from memory.
+
+SOURCING DISCIPLINE: quote only from a page you actually opened and read. A search-result snippet is not a source; if you did not fetch the page, do not quote it. When a page is blocked, paywalled, or will not load, leave that cell unquoted (an honest blank) rather than transcribing the snippet. Every quote is refetched by `vault-tool research verify`, which confirms the verbatim text is on the page, and a snippet-sourced quote fails that check and blocks the vault note.
+
+For each entity capture:
 - name (the entity's canonical name)
 - in_frame ("yes" if it clearly matches the frame; "no" with a reason if it is a near-miss you want on record)
 - one value per attribute above, each with:

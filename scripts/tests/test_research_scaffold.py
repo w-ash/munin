@@ -152,3 +152,36 @@ def test_rank_scaffold_checks_clean(tmp_path: Path) -> None:
     topic = store.load_topic(created.root)
     errors, _ = store.check(topic)
     assert errors == []
+
+
+def test_refuses_dest_inside_git_tree(tmp_path: Path) -> None:
+    """A store must never be scaffolded into a git working tree (it would risk
+    committing research data into the public tool repo)."""
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    with pytest.raises(ValueError, match="git working tree"):
+        scaffold.create_topic("demo-topic", "Demo Topic", repo / "sub")
+    assert not (repo / "sub" / "demo-topic").exists()
+
+
+def test_refuses_dest_inside_icloud(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A store must never live in the iCloud-synced vault tree (write races)."""
+    icloud = tmp_path / "Mobile Documents"
+    monkeypatch.setattr(scaffold, "_ICLOUD_ROOT", icloud)
+    with pytest.raises(ValueError, match="iCloud"):
+        scaffold.create_topic("demo-topic", "Demo Topic", icloud / "vault")
+    assert not (icloud / "vault" / "demo-topic").exists()
+
+
+def test_default_data_home_respects_xdg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    assert scaffold.default_data_home() == tmp_path / "xdg" / "vault-research"
+
+
+def test_default_data_home_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    assert scaffold.default_data_home() == Path.home() / ".local/share/vault-research"

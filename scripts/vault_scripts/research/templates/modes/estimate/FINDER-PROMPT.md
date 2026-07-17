@@ -11,6 +11,8 @@ FACTOR ({{FACTOR_ID}}): {{FACTOR_NAME}} ({{FACTOR_CONTEXT}})
 
 Use web search (and fetch promising URLs). Search-first; never assert a number from memory. GOAL: pin this factor's plausible **range**, not a single point. Find sources that bound it low and high.
 
+SOURCING DISCIPLINE: quote only from a page you actually opened and read. A search-result snippet is not a source; if you did not fetch the page, do not quote it. When a page is blocked, paywalled, or will not load, leave that finding unquoted (an honest blank) rather than transcribing the snippet. Every quote is refetched by `vault-tool research verify`, which confirms the verbatim text is on the page, and a snippet-sourced quote fails that check and blocks the vault note.
+
 Capture, for the factor:
 - a **low** and a **high** that bracket a 90% interval (you are ~90% sure the true value is between them, not the absolute min/max), and a **mid** (median) if a central source supports one
 - for each bound or central value, a piece of evidence:

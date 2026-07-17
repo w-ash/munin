@@ -11,6 +11,10 @@ mode = "{{MODE}}"
 # The unit of analysis, singular: here a "candidate".
 unit_noun = "candidate"
 category_prefix = "C"
+# The durable vault note this topic renders to, a path within the vault.
+# `vault-tool research render` projects the verified store here; leave blank
+# until you know where the note lives.
+vault_note = ""
 
 [verify]
 # rank reuses verify's per-cell certainty engine (decibans), so it shares these
