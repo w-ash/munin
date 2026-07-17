@@ -8,7 +8,6 @@ paths:
   - "Concerts/**"
   - "Weekends/**"
   - "Health/**"
-  - "Homes/**"
   - "People/**"
   - "Restaurants/**"
   - "Shops/**"
@@ -39,6 +38,14 @@ regenerable projection.
   DuckDB cache outside iCloud, rebuilt with `vault-tool db rebuild` and queried with
   `vault-tool db query`: disposable, never the record. Agents reach telemetry through
   that tool, not raw file reads.
+
+A small third kind sits beside these two: **reference data**, slowly-changing lookup
+tables that are neither event records nor annotated notes (e.g. the supplement
+substance registry, `Health/data/reference/substances.jsonl`: canonical nutrients,
+units, upper limits). Kept as JSONL under `Health/data/reference/` so the same DuckDB
+cache reads it with no extra code, hand-maintained and edited in place, git-versioned.
+Reach for it only when a domain genuinely needs a shared lookup table; a handful of
+rows do not warrant a note apiece.
 
 Default a new domain to notes-as-record; demote to canonical-files only when volume
 actually hurts. Mixed domains split at the same line (a sickness episode is a note;

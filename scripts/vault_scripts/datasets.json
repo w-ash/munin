@@ -1,5 +1,10 @@
 {
   "datasets": {
-    "activities": "Health/data/canonical/activities-*.jsonl"
+    "activities": "Health/data/canonical/activities-*.jsonl",
+    "supplement_substances": "Health/data/reference/substances.jsonl",
+    "supplement_ingredients": "Health/data/derived/product-ingredients.jsonl",
+    "supplement_regimen": "Health/data/canonical/stack-regimen.jsonl",
+    "supplement_exceptions": "Health/data/canonical/stack-exceptions.jsonl",
+    "supplement_intake": "Health/data/derived/intake-*.jsonl"
   }
 }

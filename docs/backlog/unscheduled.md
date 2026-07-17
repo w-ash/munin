@@ -3,6 +3,24 @@
 Unversioned ideas. Every new idea lands here first; promotion into a version series file is a
 deliberate planning act.
 
+- [ ] **Supplement intake tracking: remaining follow-ups**
+    - Effort: S
+    - What: Two deferred pieces of the supplement-intake v2 work (the `vault-tool stack` module,
+      shipped 2026-07-16: substance registry, effective-dated regimen log, exception log, derived
+      daily intake record, `/stack` skill). (1) A private git repo for `Health/data/` so the
+      canonical logs and reference data have off-site history, per the [[Trackers]] backup posture;
+      it shares the home Eir's telemetry will use, so create it when Eir's first sync lands or sooner
+      if wanted. (2) An optional daily-journal projection of a day's intake into `Daily/`
+      frontmatter, only if the Eir correlation work wants intake alongside training and mood; today
+      there is deliberately no normal-day projection (a "took the stack as planned" line 350 days a
+      year is noise), and exception days already reach the journal via the `[[date]]` backlink from
+      Stack.md's exception log.
+    - Why: The data model and tooling are complete and tested; these are hygiene and integration, not
+      blockers. Backup matters once the logs accumulate history worth losing.
+    - Dependencies: Eir's `Health/data/` git repo (shared) for item 1; Eir correlation ritual for item 2.
+    - Notes: Design and rationale in `Projects/Supplement Intake Tracking.md`; schema in
+      `.claude/rules/supplements.md`.
+
 - [ ] **Port the mixd decision ledger into munin**
     - Effort: M
     - What: Adopt the evidence-typed decision-record format from `mixd/docs/decisions/` (README
