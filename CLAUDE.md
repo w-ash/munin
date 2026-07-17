@@ -10,7 +10,6 @@ Career/            → Job search materials, company research, portfolio pieces
 Daily/             → Daily journal entries
 Finance/           → Budget, bills, financial planning
 Health/            → Fitness logs, health tracking, goals; provider notes (#provider) in Providers/entries/ (Providers.base); supplement notes (#supplement) in Supplements/entries/ (Supplements.base), regimen hub Stack.md
-Homes/             → Candidate home-buy notes (#home) in entries/ (Homes.base); shared rubric + weights in Criteria.md
 Ideas/             → Explorations, things to investigate
 Meta/              → Human-facing docs on how the vault + its tooling are structured (storage framework: Trackers.md; data-placement rule: .claude/rules/trackers.md)
 Ontology/          → Knowledge notes (#ontology) in entries/, sources (#source) in sources/ (Entries.base, Sources.base)
@@ -25,7 +24,7 @@ Travel/            → Trip planning; one folder per trip with a hub note + cate
 Work/              → Work notes (staging; move to work vault when ready)
 ```
 
-Entity folders share one shape: a `<Name>.base` at the folder root over an `entries/` subfolder holding the tagged notes (People, Pets, Restaurants, Shops, Ontology, Homes).
+Entity folders share one shape: a `<Name>.base` at the folder root over an `entries/` subfolder holding the tagged notes (People, Pets, Restaurants, Shops, Ontology).
 
 ## Frontmatter Convention
 
@@ -51,7 +50,6 @@ Full reference: `obsidian:obsidian-cli` skill.
 - `People/`: People.base · `Pets/`: Pets.base
 - `Restaurants/`: All Restaurants.base · `Shops/`: All Shops.base
 - `Health/Providers/`: Providers.base · `Health/Supplements/`: Supplements.base
-- `Homes/`: Homes.base (candidate homes; rubric + weights in Criteria.md)
 - `Ontology/`: Entries.base, Sources.base
 - `Travel/<Trip>/`: per-trip Destinations, Experiences, Dining, Shopping comparison tables
 

@@ -369,6 +369,26 @@ def parse_coords(s: str) -> tuple[float, float] | None:
     return float(m.group(1)), float(m.group(2))
 
 
+# Mean Earth radius in miles; the comps model measures subject-to-comp proximity
+# in miles, matching RentCast's ``distance`` field.
+_EARTH_RADIUS_MI = 3958.7613
+
+
+def haversine_miles(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Great-circle distance in miles between two ``(lat, lng)`` points.
+
+    Used by the valuation model to compute subject-to-comp distance from
+    :func:`parse_coords` output when a comp row has no precomputed ``dist_mi``.
+    """
+    lat1, lng1 = a
+    lat2, lng2 = b
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    h = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * _EARTH_RADIUS_MI * math.asin(math.sqrt(h))
+
+
 # --- Body helpers ---
 
 
@@ -426,6 +446,42 @@ def add_inline_embed(text: str, image_filename: str) -> str:
         return "\n".join(lines)
 
     return text
+
+
+def upsert_section(text: str, heading: str, body: str) -> str:
+    """Insert or replace a ``## heading`` section in a note, returning the new text.
+
+    The section runs from its exact ``heading`` line to the next same-or-higher
+    level heading (``# `` or ``## ``) or end of document; deeper (``### ``)
+    subsections stay inside it. When the heading is absent the section is appended
+    with a blank-line separator. Idempotent: re-running with the same ``body``
+    reproduces byte-identical text, so a valuation re-run leaves an unchanged note
+    unchanged. ``heading`` includes its marker (e.g. ``"## Valuation"``); ``body``
+    is the section content below it (a Markdown table, prose, or both).
+    """
+    block = f"{heading}\n\n{body.rstrip(chr(10))}"
+    lines = text.split("\n")
+    start: int | None = None
+    for i, line in enumerate(lines):
+        if line.rstrip() == heading:
+            start = i
+            break
+    if start is None:
+        return f"{text.rstrip(chr(10))}\n\n{block}\n"
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].startswith("# ") or lines[j].startswith("## "):
+            end = j
+            break
+    trailing = lines[end:]
+    rebuilt = [*lines[:start], *block.split("\n")]
+    if trailing:
+        # One blank line between this section and whatever follows.
+        rebuilt.append("")
+        rebuilt.extend(trailing)
+    else:
+        rebuilt.append("")
+    return "\n".join(rebuilt)
 
 
 # --- File discovery ---

@@ -684,3 +684,294 @@ class CanonicalActivityRow(_ExtraIgnore):
     avg_hr: float | None = None
     max_hr: float | None = None
     sources: list[CanonicalSource] = []
+
+
+# --- Supplement stack (stack module) ---
+
+
+class SubstanceRow(_ExtraIgnore):
+    """One row of ``Health/data/reference/substances.jsonl``: a canonical
+    nutrient ``key``, its canonical ``unit`` (minerals as elemental), and the
+    NIH ODS tolerable upper intake level (``ul``) where one exists. ``ul`` is
+    ``None`` for the ~23 substances with no established UL. Reference-data tier:
+    hand-maintained, edited in place, read by the stack tool and the db cache."""
+
+    key: str = ""
+    name: str = ""
+    unit: str = ""
+    ul: float | None = None
+    ul_basis: str | None = None
+    ul_source: str | None = None
+    notes: str = ""
+
+
+class SupplementIngredient(_ExtraIgnore):
+    """One entry in a product note's ``ingredients`` list: the label amount
+    ``per_serving`` in ``unit``, plus the canonical substance ``key`` added in
+    the v2 migration. ``dv_percent`` is ``None`` where the label prints * / †."""
+
+    name: str = ""
+    key: str = ""
+    per_serving: float = 0.0
+    unit: str = ""
+    dv_percent: float | None = None
+
+
+class SupplementNote(_ExtraIgnore):
+    """The frontmatter slice of a ``Health/Supplements/entries/*.md`` product
+    note the stack tool reads. The regimen mirror fields (``status``,
+    ``frequency``, ``pills_per_day``, ``time_slot``) are tool-owned from v2 on;
+    the stack tool treats them as the current-regimen snapshot until the
+    effective-dated log (slice 2) supersedes them."""
+
+    name: str = ""
+    brand: str = ""
+    status: str = ""
+    frequency: str = ""
+    pills_per_day: int = 0
+    pills_per_serving: int = 1
+    time_slot: str = ""
+    source_id: str = ""
+    ingredients: list[SupplementIngredient] = []
+
+
+class RegimenEvent(_ExtraIgnore):
+    """One append-only row of ``Health/data/canonical/stack-regimen.jsonl``: a
+    change to which product fills a regimen role, effective-dated. ``event`` is
+    ``set`` (create or supersede a role's fill) or ``stop`` (the role ends).
+    ``effective`` (the date the change takes hold) is decoupled from ``ts`` (when
+    it was recorded) so history is correctable by appending, never editing:
+    regimen-as-of(D) folds events with ``effective <= D`` ordered by
+    ``(effective, ts)``. ``label`` and ``timing_note`` are display strings the
+    generated Stack.md block renders; ``note`` is the change rationale."""
+
+    id: str = ""
+    ts: str = ""
+    event: str = ""
+    role: str = ""
+    effective: str = ""
+    product: str = ""
+    pills_per_day: int = 0
+    slot: str = ""
+    frequency: str = "daily"
+    label: str = ""
+    timing_note: str = ""
+    note: str = ""
+
+
+class StackException(_ExtraIgnore):
+    """One append-only row of ``Health/data/canonical/stack-exceptions.jsonl``:
+    a deviation from the planned regimen on a given ``date``. ``kind`` is
+    ``miss`` (``scope`` day | slot | role), ``taken`` (an affirmative log of a
+    PRN or off-plan dose), ``extra`` (additional pills of a regimen item),
+    ``substitute`` (a one-day product swap for a role), or ``dose_change`` (a
+    one-day pills override). Only the fields a kind needs are set. The daily
+    record derives from the regimen fold plus these events; a normal day has
+    none."""
+
+    id: str = ""
+    ts: str = ""
+    date: str = ""
+    kind: str = ""
+    scope: str = ""
+    slot: str = ""
+    role: str = ""
+    product: str = ""
+    pills: int = 0
+    note: str = ""
+
+
+class DailyIntakeRow(_ExtraIgnore):
+    """One derived row of ``Health/data/derived/intake-<year>.jsonl``: the amount
+    of one substance taken on one day via one role, materialized from the
+    regimen fold and the exception log. ``basis`` is ``plan`` (from the regimen
+    that day) or ``exception`` (from a logged deviation, with ``event_id``).
+    Layer-2 projection: regenerated wholesale, never the record."""
+
+    date: str = ""
+    role: str = ""
+    product: str = ""
+    slot: str = ""
+    pills: int = 0
+    key: str = ""
+    amount: float = 0.0
+    unit: str = ""
+    basis: str = "plan"
+    event_id: str = ""
+
+
+class ProductIngredientRow(_ExtraIgnore):
+    """One derived row of ``Health/data/derived/product-ingredients.jsonl``:
+    the per-pill amount of one substance a product delivers, carrying the note's
+    current mirror fields so downstream can filter to the active daily stack.
+    ``per_pill`` = ``per_serving / pills_per_serving``. Layer-2 projection:
+    regenerated wholesale from the notes, never hand-edited."""
+
+    product: str = ""
+    product_name: str = ""
+    brand: str = ""
+    status: str = ""
+    frequency: str = ""
+    time_slot: str = ""
+    pills_per_serving: int = 1
+    pills_per_day: int = 0
+    key: str = ""
+    ingredient_name: str = ""
+    per_serving: float = 0.0
+    unit: str = ""
+    per_pill: float = 0.0
+    dv_percent: float | None = None
+
+
+# --- Homes rubric scorer (homes module) ---
+
+
+@dataclass(frozen=True, slots=True)
+class Criterion:
+    """One scored dimension from ``Projects/Home Search/Homes/Criteria.md``: a stable ``key`` (matched
+    to a home's ``<key>_actual`` / ``<key>_potential`` / ``<key>_effort`` fields),
+    an importance ``weight`` shared across all homes, and a display ``label``."""
+
+    key: str
+    weight: float
+    label: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class OfferRatios:
+    """Sale-to-list ratios from the ``berkeley-offer-model`` estimate topic. Any
+    field is ``None`` until the topic produces a band; the scorer then multiplies
+    a home's ``list_price`` by each to fill ``est_offer_{low,mid,high}``."""
+
+    low: float | None
+    mid: float | None
+    high: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class HomeScore:
+    """The computed rubric result for one home. Scores are weighted averages on
+    the native 1-5 scale, or ``None`` when the home has no rated criteria.
+    ``rated``/``total`` report coverage (how many criteria were scored)."""
+
+    score_actual: float | None
+    score_potential: float | None
+    score_upside: float | None
+    reno_burden: float | None
+    rated: int
+    total: int
+
+
+# --- Homes valuation model (homes value / _comps modules) ---
+
+
+@dataclass(frozen=True, slots=True)
+class Adjustment:
+    """One feature's market-value adjustment from ``Projects/Home Search/Homes/Adjustments.md``.
+
+    ``low``/``mid``/``high`` are dollars per one unit of ``feature`` difference
+    (``unit`` names that unit: a bath, a sqft, a 1-5 condition step), so the
+    adjustment applied to a comp is ``mid × (subject_value − comp_value)`` and the
+    low/high bracket its uncertainty. ``basis`` records how the value was derived
+    (paired-sale, hedonic, rule-of-thumb) and ``source`` cites it."""
+
+    feature: str
+    unit: str
+    low: float
+    mid: float
+    high: float
+    basis: str = ""
+    source: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Comp:
+    """One comparable sale from ``Projects/Home Search/Homes/data/comps.csv`` (one row), linked to a
+    subject home by ``subject`` slug. Numeric attributes are ``None`` when the row
+    left them blank, so a comp missing a feature simply drops that feature's
+    adjustment. ``source`` marks provenance: ``rentcast`` prices are listing-derived
+    approximations, while ``agent``/``manual``/``county`` rows carry recorded sales."""
+
+    subject: str
+    address: str
+    sale_price: float | None
+    sale_date: str
+    beds: float | None
+    baths: float | None
+    sqft: float | None
+    lot_sqft: float | None
+    year_built: int | None
+    dist_mi: float | None
+    garage: int | None
+    adu: int | None
+    condition: int | None
+    source: str
+    source_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CompAdjustment:
+    """One comp after adjustment toward the subject, for the auditable breakdown.
+    ``adjustments`` maps each feature that fired to its dollar move (subject − comp);
+    ``adjusted_price`` is the comp's sale price plus their sum; ``weight`` is the
+    comp's similarity weight in the reconciliation."""
+
+    address: str
+    sale_price: float
+    sale_date: str
+    adjustments: dict[str, float]
+    adjusted_price: float
+    weight: float
+
+
+@dataclass(frozen=True, slots=True)
+class HomeValuation:
+    """The computed valuation for one home. ``basis`` is ``comps`` when adjusted
+    comparables drove the number or ``prior`` when comps were too thin and the
+    ``berkeley-offer-model`` ratio band was used instead. ``confidence`` and
+    ``reason`` explain the band width; ``breakdown`` backs the ``## Valuation``
+    body table. All-``None`` prices when neither comps nor a prior could apply."""
+
+    predicted_price: int | None
+    predicted_low: int | None
+    predicted_high: int | None
+    implied_over_list: float | None
+    confidence: str
+    basis: str
+    comps_used: int
+    reason: str
+    breakdown: list[CompAdjustment]
+
+
+class RentCastComparable(_ExtraIgnore):
+    """One comparable from the RentCast value-estimate response. ``price`` is the
+    property's *listed* price (RentCast comparables are sale listings, not recorded
+    sales), so it approximates sale price; ``removedDate``/``lastSeenDate`` bound
+    when the listing left the market. camelCase mirrors RentCast's schema."""
+
+    id: str = ""
+    formattedAddress: str = ""
+    propertyType: str = ""
+    bedrooms: float | None = None
+    bathrooms: float | None = None
+    squareFootage: float | None = None
+    lotSize: float | None = None
+    yearBuilt: int | None = None
+    price: float | None = None
+    listedDate: str = ""
+    removedDate: str = ""
+    lastSeenDate: str = ""
+    distance: float | None = None
+    correlation: float | None = None
+
+
+class RentCastValueResponse(_ExtraIgnore):
+    """Response from RentCast ``GET /avm/value``: the subject estimate plus the
+    comparable listings used to derive it."""
+
+    price: float | None = None
+    priceRangeLow: float | None = None
+    priceRangeHigh: float | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    comparables: list[RentCastComparable] = []
